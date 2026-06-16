@@ -40,10 +40,8 @@ jobs:
           mkdir -p wheels_dir
           python -m qtpip download PySide6 --android --arch aarch64 --dest wheels_dir
           python -m qtpip download shiboken6 --android --arch aarch64 --dest wheels_dir
-          
           PYSIDE_WHEEL=$(realpath wheels_dir/PySide6*.whl | head -n 1)
           SHIBOKEN_WHEEL=$(realpath wheels_dir/shiboken6*.whl | head -n 1)
-          
           echo "WHEEL_PYSIDE=$PYSIDE_WHEEL" >> $GITHUB_ENV
           echo "WHEEL_SHIBOKEN=$SHIBOKEN_WHEEL" >> $GITHUB_ENV
 
@@ -53,10 +51,11 @@ jobs:
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
           echo "ANDROID_NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
 
+      # ПРИНУДИТЕЛЬНЫЙ ОТВЕТ НА ВОПРОСЫ СБОРЩИКА
       - name: Build APK
         run: |
-          # ИСПРАВЛЕНО: Заменили --spec на -c
-          pyside6-android-deploy \
+          # Команда 'yes' будет бесконечно слать 'y' и Enter в консоль сборщика
+          yes | pyside6-android-deploy \
             -c pysidedeploy.spec \
             --wheel-pyside "${{ env.WHEEL_PYSIDE }}" \
             --wheel-shiboken "${{ env.WHEEL_SHIBOKEN }}" \
