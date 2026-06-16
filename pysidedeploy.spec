@@ -1,35 +1,28 @@
 [app]
-# Название приложения на экране смартфона
+# Название приложения
 title = PureIPTV Premium
 
-# Уникальный ID (используется для установки обновлений)
+# Уникальный ID
 package_name = org.pure.iptv.premium
 
-# Версия приложения
+# Версия
 version = 1.0.0
 
-# Главный файл, с которого начинается запуск
+# Главный файл
 entrypoint = main.py
 
-# Какие файлы включить внутрь APK (скрипты, интерфейс, база данных)
-include_files = main.py,main.qml,premium.db
+# Какие файлы включить (только те, что РЕАЛЬНО лежат в репозитории)
+include_files = main.py,main.qml
 
-# Список Python-библиотек, которые нужно упаковать
-# Обязательно указываем requests и python-mpv
+# Зависимости
 python_depends = requests,urllib3,idna,charset-normalizer,certifi,python-mpv
 
-# Целевая платформа
-target = android
-
-# Архитектура (arm64-v8a — стандарт для современных смартфонов)
-arch = arm64-v8a
-
 [android]
-# Разрешения для Android (Интернет — база для IPTV)
+# Разрешения
 permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE
 
-# Тема приложения (Fullscreen — на весь экран без рамок)
+# Тема
 theme = @android:style/Theme.NoTitleBar.Fullscreen
 
-# Скрывать навигационную панель при запуске
-# hide_navigation = True
+# Архитектура
+arch = arm64-v8a
