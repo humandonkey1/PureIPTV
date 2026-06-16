@@ -16,20 +16,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          # Полный набор для Qt и MPV
-          sudo apt-get install -y \
-            libmpv-dev \
-            libegl1-mesa-dev \
-            wget \
-            unzip \
-            libdouble-conversion3 \
-            libxcb-cursor0 \
-            libpcre2-16-0 \
-            libfontconfig1 \
-            libx11-xcb1 \
-            libicu-dev \
-            libxkbcommon-x11-0 \
-            libdbus-1-3
+          sudo apt-get install -y libmpv-dev libegl1-mesa-dev wget unzip
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,37 +29,36 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build APK in Virtual Environment
+      - name: Build APK
         run: |
+          # 1. Создаем виртуальное окружение
           python -m venv venv
           source venv/bin/activate
           
+          # 2. Ставим инструменты
           pip install --upgrade pip
-          pip install pyside6==6.7.2 shiboken6==6.7.2 requests python-mpv qtpip
+          pip install pyside6==6.7.2 shiboken6==6.7.2 requests python-mpv
           pip install jinja2 pkginfo tqdm "packaging==24.1"
           
-          # СОЗДАЕМ ПАПКУ И СКАЧИВАЕМ ВНУТРИ НЕЁ
+          # 3. Скачиваем Android-библиотеки напрямую из публичного архива Qt (Open Source)
           mkdir -p wheels_dir
           cd wheels_dir
-          # qtpip скачивает в текущую директорию (.)
-          python -m qtpip download PySide6 --android --arch aarch64
-          python -m qtpip download shiboken6 --android --arch aarch64
+          # ВАЖНО: Правильный путь QtForPython (без нижних подчеркиваний)
+          wget https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.7.2-cp310-cp310-android_aarch64.whl
+          wget https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.7.2-cp310-cp310-android_aarch64.whl
           cd ..
           
-          # Находим скачанные файлы
-          PYSIDE_WHEEL=$(ls -1 wheels_dir/PySide6-*.whl | head -n 1)
-          SHIBOKEN_WHEEL=$(ls -1 wheels_dir/shiboken6-*.whl | head -n 1)
+          # 4. Получаем абсолютные пути к скачанным файлам
+          PYSIDE_PATH=$(readlink -f wheels_dir/PySide6-*.whl)
+          SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           
-          PYSIDE_PATH=$(readlink -f "$PYSIDE_WHEEL")
-          SHIBOKEN_PATH=$(readlink -f "$SHIBOKEN_WHEEL")
-          
-          echo "PySide Wheel found at: $PYSIDE_PATH"
-          echo "Shiboken Wheel found at: $SHIBOKEN_PATH"
+          echo "Using PySide Wheel: $PYSIDE_PATH"
+          echo "Using Shiboken Wheel: $SHIBOKEN_PATH"
 
-          # Находим NDK
+          # 5. Находим актуальный NDK
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
 
-          # Запуск сборки
+          # 6. Запускаем сборку (теперь без лишних вопросов)
           pyside6-android-deploy \
             -c pysidedeploy.spec \
             --wheel-pyside "$PYSIDE_PATH" \
