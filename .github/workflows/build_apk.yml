@@ -16,7 +16,8 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmpv-dev libegl1-mesa-dev wget unzip realpath
+          # Убрали realpath, так как он уже есть в системе
+          sudo apt-get install -y libmpv-dev libegl1-mesa-dev wget unzip
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,35 +32,39 @@ jobs:
 
       - name: Build APK in Virtual Environment
         run: |
-          # Создаем и активируем виртуальное окружение
+          # Создаем виртуальное окружение
           python -m venv venv
           source venv/bin/activate
           
-          # Устанавливаем зависимости внутри venv
           pip install --upgrade pip
           pip install pyside6==6.7.2 shiboken6==6.7.2 requests python-mpv qtpip
           pip install jinja2 pkginfo tqdm "packaging==24.1"
           
-          # Скачиваем wheels
+          # Скачиваем Android-библиотеки
           mkdir -p wheels_dir
           python -m qtpip download PySide6 --android --arch aarch64 --dest wheels_dir
           python -m qtpip download shiboken6 --android --arch aarch64 --dest wheels_dir
           
-          # Получаем ЧИСТЫЕ пути (исправляет ошибку Wheel corrupted)
-          PYSIDE_WHEEL=$(realpath wheels_dir/PySide6-*.whl)
-          SHIBOKEN_WHEEL=$(realpath wheels_dir/shiboken6-*.whl)
+          # Находим пути к файлам. Берем строго один файл (первый в списке)
+          PYSIDE_WHEEL=$(ls -1 wheels_dir/PySide6-*.whl | head -n 1)
+          SHIBOKEN_WHEEL=$(ls -1 wheels_dir/shiboken6-*.whl | head -n 1)
           
-          echo "Using PySide Wheel: $PYSIDE_WHEEL"
-          echo "Using Shiboken Wheel: $SHIBOKEN_WHEEL"
+          # Превращаем в полный путь
+          PYSIDE_PATH=$(readlink -f "$PYSIDE_WHEEL")
+          SHIBOKEN_PATH=$(readlink -f "$SHIBOKEN_WHEEL")
+          
+          echo "Using PySide Wheel: $PYSIDE_PATH"
+          echo "Using Shiboken Wheel: $SHIBOKEN_PATH"
 
-          # Находим NDK
+          # Находим путь к Android NDK (он предустановлен на GitHub)
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
+          echo "Using NDK: $NDK_PATH"
 
-          # Запускаем сборку БЕЗ 'yes |', так как в venv он не должен спрашивать
+          # Запуск сборки
           pyside6-android-deploy \
             -c pysidedeploy.spec \
-            --wheel-pyside "$PYSIDE_WHEEL" \
-            --wheel-shiboken "$SHIBOKEN_WHEEL" \
+            --wheel-pyside "$PYSIDE_PATH" \
+            --wheel-shiboken "$SHIBOKEN_PATH" \
             --sdk-path "$ANDROID_SDK_ROOT" \
             --ndk-path "$NDK_PATH"
 
