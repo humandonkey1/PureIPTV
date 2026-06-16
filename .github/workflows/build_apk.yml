@@ -16,7 +16,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          # Добавили библиотеки, которые требует qtpip (libdouble-conversion3 и зависимости Qt)
+          # Полный набор для Qt и MPV
           sudo apt-get install -y \
             libmpv-dev \
             libegl1-mesa-dev \
@@ -27,7 +27,9 @@ jobs:
             libpcre2-16-0 \
             libfontconfig1 \
             libx11-xcb1 \
-            libicu-dev
+            libicu-dev \
+            libxkbcommon-x11-0 \
+            libdbus-1-3
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,7 +44,6 @@ jobs:
 
       - name: Build APK in Virtual Environment
         run: |
-          # Создаем виртуальное окружение
           python -m venv venv
           source venv/bin/activate
           
@@ -50,21 +51,23 @@ jobs:
           pip install pyside6==6.7.2 shiboken6==6.7.2 requests python-mpv qtpip
           pip install jinja2 pkginfo tqdm "packaging==24.1"
           
-          # Скачиваем Android-библиотеки
+          # СОЗДАЕМ ПАПКУ И СКАЧИВАЕМ ВНУТРИ НЕЁ
           mkdir -p wheels_dir
-          # Используем qtpip. Теперь системные либы на месте, и он должен сработать
-          python -m qtpip download PySide6 --android --arch aarch64 --dest wheels_dir
-          python -m qtpip download shiboken6 --android --arch aarch64 --dest wheels_dir
+          cd wheels_dir
+          # qtpip скачивает в текущую директорию (.)
+          python -m qtpip download PySide6 --android --arch aarch64
+          python -m qtpip download shiboken6 --android --arch aarch64
+          cd ..
           
-          # Проверяем пути
+          # Находим скачанные файлы
           PYSIDE_WHEEL=$(ls -1 wheels_dir/PySide6-*.whl | head -n 1)
           SHIBOKEN_WHEEL=$(ls -1 wheels_dir/shiboken6-*.whl | head -n 1)
           
           PYSIDE_PATH=$(readlink -f "$PYSIDE_WHEEL")
           SHIBOKEN_PATH=$(readlink -f "$SHIBOKEN_WHEEL")
           
-          echo "Using PySide Wheel: $PYSIDE_PATH"
-          echo "Using Shiboken Wheel: $SHIBOKEN_PATH"
+          echo "PySide Wheel found at: $PYSIDE_PATH"
+          echo "Shiboken Wheel found at: $SHIBOKEN_PATH"
 
           # Находим NDK
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
