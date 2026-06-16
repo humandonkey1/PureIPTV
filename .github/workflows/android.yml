@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Защита от варнинга на твоем скриншоте
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
     - name: Checkout code
@@ -24,14 +24,14 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev tk-dev libgdbm-compat-dev liblzma-dev lzma libmpv-dev
-        # Устанавливаем сам PySide6 и Buildozer вместе в одну экосистему
-        pip install --user --upgrade buildozer cython virtualenv PySide6 requests python-mpv
+        # Устанавливаем базовые пакеты, а также jinja2, pkginfo и tqdm, которые потребовал Qt!
+        pip install --user --upgrade buildozer cython virtualenv PySide6 requests python-mpv jinja2 pkginfo tqdm
 
     - name: Build Android APK with PySide6 Deploy
       run: |
         export PATH=$PATH:$HOME/.local/bin
-        # Магия: запускаем официальный упаковщик Qt, который сам правильно настроит Бульдозер!
-        yes | pyside6-android-deploy --name="PureIPTV Premium" --entrypoint=main.py
+        # Запускаем сборку без команды 'yes |', так как мы уже установили все требования
+        pyside6-android-deploy --name="PureIPTV Premium" --entrypoint=main.py
         
     - name: Upload Premium APK Artifact
       uses: actions/upload-artifact@v4
