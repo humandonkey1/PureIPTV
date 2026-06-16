@@ -10,31 +10,55 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Скачиваем код из репозитория
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Устанавливаем системные библиотеки для MPV и графики
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libmpv-dev libegl1-mesa-dev wget unzip
 
-      # 3. Настраиваем Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 4. Устанавливаем ВСЕ необходимые инструменты и зависимости сборщика
       - name: Install Python Build Tools
         run: |
           python -m pip install --upgrade pip
-          # Базовые библиотеки нашего приложения
           pip install pyside6 shiboken6 requests python-mpv
-          # Внутренние зависимости PySide6 для Android Deploy (исправляет прошлую ошибку)
           pip install jinja2 pkginfo tqdm "packaging==24.1"
 
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Настройка путей для сборщика (важный шаг!)
+      - name: Set Android Environment
+        run: |
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          # Находим путь к NDK (обычно он там)
+          NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
+          echo "ANDROID_NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
+
+      # Инициализация и скачивание Android Wheels
+      - name: Initialize PySide6 Android Support
+        run: |
+          # Эта команда скачает нужные библиотеки PySide6 для Android
+          pyside6-android-deploy --init --sdk-path $ANDROID_SDK_ROOT --ndk-path $ANDROID_NDK_PATH
+
+      - name: Build APK
+        run: |
+          # Теперь запускаем саму сборку
+          pyside6-android-deploy --spec pysidedeploy.spec --sdk-path $ANDROID_SDK_ROOT --ndk-path $ANDROID_NDK_PATH
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PureIPTV-Premium
+          path: "*.apk"
       # 5. Настраиваем Java (нужна для Android SDK)
       - name: Set up Java 17
         uses: actions/setup-java@v4
