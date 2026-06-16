@@ -1,9 +1,6 @@
 name: Build Premium APK
 
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   build:
@@ -16,9 +13,9 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmpv-dev libegl1-mesa-dev wget unzip libdouble-conversion3 libxcb-cursor0 libpcre2-16-0 libfontconfig1 libx11-xcb1 libicu-dev libxkbcommon-x11-0 libdbus-1-3
+          sudo apt-get install -y libmpv-dev wget unzip libdouble-conversion3 libxcb-cursor0 libpcre2-16-0 libfontconfig1 libx11-xcb1 libicu-dev libxkbcommon-x11-0 libdbus-1-3
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -36,6 +33,13 @@ jobs:
           pip install --upgrade pip
           pip install pyside6==6.8.0 shiboken6==6.8.0 requests python-mpv qtpip jinja2 pkginfo tqdm "packaging==24.1"
           
+          # СКАЧИВАЕМ libmpv ДЛЯ ANDROID (БЕЗ НЕЁ ПЛЕЕР НЕ ЗАРАБОТАЕТ!)
+          # Мы берем проверенную либу из проекта mpv-android
+          wget https://github.com/mpv-android/mpv-android/releases/download/v1.17.0/mpv-android-v1.17.0-arm64-v8a.apk
+          unzip mpv-android-v1.17.0-arm64-v8a.apk lib/arm64-v8a/libmpv.so -d .
+          mv lib/arm64-v8a/libmpv.so .
+
+          # Скачиваем Android-библиотеки Qt
           mkdir -p wheels_dir
           cd wheels_dir
           wget https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.0-6.8.0-cp311-cp311-android_aarch64.whl
@@ -46,7 +50,7 @@ jobs:
           SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
 
-          # ПРИНУДИТЕЛЬНО запускаем с флагов --name, чтобы он знал как назвать APK
+          # Запуск сборки
           pyside6-android-deploy \
             -c pysidedeploy.spec \
             --name PureIPTV \
@@ -55,10 +59,9 @@ jobs:
             --sdk-path "$ANDROID_SDK_ROOT" \
             --ndk-path "$NDK_PATH"
 
-      # Нам не нужны переменные! Мы просто скажем: "Найди любой .apk файл в папке deployment"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: PureIPTV-Premium
-          path: "./**/*.apk"
+          path: "**/*.apk"
           if-no-files-found: error
