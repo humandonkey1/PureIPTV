@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Убираем варнинг со скриншота
 
     steps:
     - name: Checkout code
@@ -28,10 +30,4 @@ jobs:
       run: |
         export PATH=$PATH:$HOME/.local/bin
         yes | buildozer android debug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: Pure-IPTV-Premium-APK
-        path: bin/*.apk
         
