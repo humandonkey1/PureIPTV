@@ -16,8 +16,18 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          # Убрали realpath, так как он уже есть в системе
-          sudo apt-get install -y libmpv-dev libegl1-mesa-dev wget unzip
+          # Добавили библиотеки, которые требует qtpip (libdouble-conversion3 и зависимости Qt)
+          sudo apt-get install -y \
+            libmpv-dev \
+            libegl1-mesa-dev \
+            wget \
+            unzip \
+            libdouble-conversion3 \
+            libxcb-cursor0 \
+            libpcre2-16-0 \
+            libfontconfig1 \
+            libx11-xcb1 \
+            libicu-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,23 +52,22 @@ jobs:
           
           # Скачиваем Android-библиотеки
           mkdir -p wheels_dir
+          # Используем qtpip. Теперь системные либы на месте, и он должен сработать
           python -m qtpip download PySide6 --android --arch aarch64 --dest wheels_dir
           python -m qtpip download shiboken6 --android --arch aarch64 --dest wheels_dir
           
-          # Находим пути к файлам. Берем строго один файл (первый в списке)
+          # Проверяем пути
           PYSIDE_WHEEL=$(ls -1 wheels_dir/PySide6-*.whl | head -n 1)
           SHIBOKEN_WHEEL=$(ls -1 wheels_dir/shiboken6-*.whl | head -n 1)
           
-          # Превращаем в полный путь
           PYSIDE_PATH=$(readlink -f "$PYSIDE_WHEEL")
           SHIBOKEN_PATH=$(readlink -f "$SHIBOKEN_WHEEL")
           
           echo "Using PySide Wheel: $PYSIDE_PATH"
           echo "Using Shiboken Wheel: $SHIBOKEN_PATH"
 
-          # Находим путь к Android NDK (он предустановлен на GitHub)
+          # Находим NDK
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
-          echo "Using NDK: $NDK_PATH"
 
           # Запуск сборки
           pyside6-android-deploy \
