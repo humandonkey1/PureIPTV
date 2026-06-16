@@ -26,29 +26,25 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build APK
+      - name: Build APK Process
         run: |
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install pyside6==6.8.0 shiboken6==6.8.0 requests python-mpv qtpip jinja2 pkginfo tqdm "packaging==24.1"
           
-          # 1. АВТОМАТИЧЕСКИЙ ПОИСК И ЗАГРУЗКА libmpv.so
-          echo "Finding latest mpv-android release..."
-          LATEST_TAG=$(curl -s https://api.github.com/repos/mpv-android/mpv-android/releases/latest | jq -r .tag_name)
-          echo "Latest tag: $LATEST_TAG"
+          # 1. УМНОЕ СКАТЫВАНИЕ libmpv.so
+          echo "Finding the correct asset URL..."
+          ASSET_URL=$(curl -s https://api.github.com/repos/mpv-android/mpv-android/releases/latest | jq -r '.assets[] | select(.name | contains("arm64-v8a")) | .browser_download_url')
+          echo "Downloading from: $ASSET_URL"
+          wget "$ASSET_URL" -O mpv-android.apk
           
-          # Скачиваем APK для arm64-v8a
-          URL="https://github.com/mpv-android/mpv-android/releases/download/${LATEST_TAG}/mpv-android-${LATEST_TAG}-arm64-v8a.apk"
-          echo "Downloading from: $URL"
-          wget $URL -O mpv-tmp.apk
-          
-          # Вытаскиваем библиотеку
-          unzip mpv-tmp.apk "lib/arm64-v8a/libmpv.so" -d .
+          # Вытаскиваем нативную либу
+          unzip mpv-android.apk "lib/arm64-v8a/libmpv.so" -d .
           mv lib/arm64-v8a/libmpv.so .
-          echo "libmpv.so successfully extracted."
+          echo "libmpv.so extracted successfully."
 
-          # 2. Скачиваем Android-библиотеки Qt
+          # 2. Подготовка Android Wheels
           mkdir -p wheels_dir
           cd wheels_dir
           wget https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.0-6.8.0-cp311-cp311-android_aarch64.whl
@@ -59,8 +55,13 @@ jobs:
           SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
 
-          # 3. Запуск сборки
+          # 3. ЗАПУСК СБОРКИ С ИНИЦИАЛИЗАЦИЕЙ
+          # Сначала инициализируем окружение
+          pyside6-android-deploy --init --sdk-path "$ANDROID_SDK_ROOT" --ndk-path "$NDK_PATH"
+
+          # Затем запускаем финальную сборку
           pyside6-android-deploy \
+            -v \
             -c pysidedeploy.spec \
             --name PureIPTV \
             --wheel-pyside "$PYSIDE_PATH" \
