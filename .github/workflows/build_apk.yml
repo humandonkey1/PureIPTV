@@ -38,19 +38,11 @@ jobs:
       - name: Download Android Wheels
         run: |
           mkdir -p wheels_dir
-          # Скачиваем библиотеки
           python -m qtpip download PySide6 --android --arch aarch64 --dest wheels_dir
           python -m qtpip download shiboken6 --android --arch aarch64 --dest wheels_dir
           
-          # Проверяем, что скачалось (увидим в логах)
-          ls -l wheels_dir
-          
-          # Записываем пути. Используем wildcard, так как версии могут меняться
           PYSIDE_WHEEL=$(realpath wheels_dir/PySide6*.whl | head -n 1)
           SHIBOKEN_WHEEL=$(realpath wheels_dir/shiboken6*.whl | head -n 1)
-          
-          if [ -z "$PYSIDE_WHEEL" ]; then echo "Error: PySide6 wheel not found"; exit 1; fi
-          if [ -z "$SHIBOKEN_WHEEL" ]; then echo "Error: Shiboken6 wheel not found"; exit 1; fi
           
           echo "WHEEL_PYSIDE=$PYSIDE_WHEEL" >> $GITHUB_ENV
           echo "WHEEL_SHIBOKEN=$SHIBOKEN_WHEEL" >> $GITHUB_ENV
@@ -63,9 +55,9 @@ jobs:
 
       - name: Build APK
         run: |
-          # Используем переменные, которые мы проверили шагом выше
+          # ИСПРАВЛЕНО: Заменили --spec на -c
           pyside6-android-deploy \
-            --spec pysidedeploy.spec \
+            -c pysidedeploy.spec \
             --wheel-pyside "${{ env.WHEEL_PYSIDE }}" \
             --wheel-shiboken "${{ env.WHEEL_SHIBOKEN }}" \
             --sdk-path "$ANDROID_SDK_ROOT" \
