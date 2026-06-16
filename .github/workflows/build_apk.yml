@@ -26,8 +26,8 @@ jobs:
       - name: Install Build Tools
         run: |
           python -m pip install --upgrade pip
-          # Устанавливаем конкретную версию для стабильности
-          pip install pyside6==6.7.2 shiboken6==6.7.2 requests python-mpv
+          # Устанавливаем PySide6 и специальную утилиту qtpip
+          pip install pyside6 shiboken6 requests python-mpv qtpip
           pip install jinja2 pkginfo tqdm "packaging==24.1"
 
       - name: Set up Java 17
@@ -36,26 +36,27 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # СКАЧИВАЕМ ANDROID WHEELS (Решает твою ошибку!)
+      # АВТОМАТИЧЕСКОЕ СКАЧИВАНИЕ ANDROID WHEELS ЧЕРЕЗ QTPIP
       - name: Download Android Wheels
         run: |
-          mkdir -p android_wheels
-          cd android_wheels
-          wget https://download.qt.io/official_releases/Qt_for_Python/pyside6/PySide6-6.7.2-cp310-cp310-android_aarch64.whl
-          wget https://download.qt.io/official_releases/Qt_for_Python/shiboken6/shiboken6-6.7.2-cp310-cp310-android_aarch64.whl
-          echo "WHEEL_PYSIDE=$(pwd)/PySide6-6.7.2-cp310-cp310-android_aarch64.whl" >> $GITHUB_ENV
-          echo "WHEEL_SHIBOKEN=$(pwd)/shiboken6-6.7.2-cp310-cp310-android_aarch64.whl" >> $GITHUB_ENV
+          mkdir -p wheels
+          # Скачиваем PySide6 и Shiboken6 для Android aarch64
+          qtpip download PySide6 --android --arch aarch64 --dest wheels
+          qtpip download shiboken6 --android --arch aarch64 --dest wheels
+          
+          # Находим пути к скачанным файлам и сохраняем в переменные окружения
+          echo "WHEEL_PYSIDE=$(ls wheels/PySide6*.whl | head -n 1)" >> $GITHUB_ENV
+          echo "WHEEL_SHIBOKEN=$(ls wheels/shiboken6*.whl | head -n 1)" >> $GITHUB_ENV
 
       - name: Set Android Environment
         run: |
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          # Находим актуальный путь к NDK
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
           echo "ANDROID_NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
 
       - name: Build APK
         run: |
-          # Запускаем сборку, передавая скачанные "колеса" и пути к SDK/NDK
+          # Запускаем сборку с использованием путей, найденных qtpip
           pyside6-android-deploy \
             --spec pysidedeploy.spec \
             --wheel-pyside ${{ env.WHEEL_PYSIDE }} \
