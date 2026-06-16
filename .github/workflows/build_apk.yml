@@ -18,10 +18,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libmpv-dev libegl1-mesa-dev wget unzip
 
+      # ВАЖНО: Переходим на Python 3.11 (как требуют новые колеса Qt)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -35,30 +36,30 @@ jobs:
           python -m venv venv
           source venv/bin/activate
           
-          # 2. Ставим инструменты
+          # 2. Устанавливаем инструменты (версия 6.8.0 самая стабильная сейчас)
           pip install --upgrade pip
-          pip install pyside6==6.7.2 shiboken6==6.7.2 requests python-mpv
+          pip install pyside6==6.8.0 shiboken6==6.8.0 requests python-mpv
           pip install jinja2 pkginfo tqdm "packaging==24.1"
           
-          # 3. Скачиваем Android-библиотеки напрямую из публичного архива Qt (Open Source)
+          # 3. Скачиваем Android-библиотеки по НОВЫМ ПРОВЕРЕННЫМ ссылкам
           mkdir -p wheels_dir
           cd wheels_dir
-          # ВАЖНО: Правильный путь QtForPython (без нижних подчеркиваний)
-          wget https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.7.2-cp310-cp310-android_aarch64.whl
-          wget https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.7.2-cp310-cp310-android_aarch64.whl
+          # Ссылки обновлены под архитектуру aarch64 и Python 3.11
+          wget https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.0-6.8.0-cp311-cp311-android_aarch64.whl
+          wget https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.8.0-6.8.0-cp311-cp311-android_aarch64.whl
           cd ..
           
-          # 4. Получаем абсолютные пути к скачанным файлам
+          # 4. Получаем абсолютные пути
           PYSIDE_PATH=$(readlink -f wheels_dir/PySide6-*.whl)
           SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           
           echo "Using PySide Wheel: $PYSIDE_PATH"
           echo "Using Shiboken Wheel: $SHIBOKEN_PATH"
 
-          # 5. Находим актуальный NDK
+          # 5. Находим NDK (он есть на GitHub по умолчанию)
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
 
-          # 6. Запускаем сборку (теперь без лишних вопросов)
+          # 6. Запускаем сборку
           pyside6-android-deploy \
             -c pysidedeploy.spec \
             --wheel-pyside "$PYSIDE_PATH" \
