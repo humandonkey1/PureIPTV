@@ -13,7 +13,8 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip jq curl libmpv-dev libdouble-conversion3 libxcb-cursor0 libpcre2-16-0 libfontconfig1 libx11-xcb1 libicu-dev libxkbcommon-x11-0 libdbus-1-3
+          # Добавляем инструменты линковки lld и другие важные либы
+          sudo apt-get install -y wget unzip jq curl libmpv-dev libdouble-conversion3 libxcb-cursor0 libpcre2-16-0 libfontconfig1 libx11-xcb1 libicu-dev libxkbcommon-x11-0 libdbus-1-3 lld libssl-dev autoconf automake libtool
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -31,18 +32,15 @@ jobs:
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
-          # УСТАНАВЛИВАЕМ BUILDOZER И CYTHON ПРИНУДИТЕЛЬНО
+          # Ставим buildozer и cython ПЕРЕД pyside
           pip install buildozer cython pyside6==6.8.0 shiboken6==6.8.0 requests python-mpv qtpip jinja2 pkginfo tqdm "packaging==24.1"
           
-          # 1. ЗАБИРАЕМ libmpv.so И УДАЛЯЕМ МУСОР
+          # 1. ЗАБИРАЕМ libmpv.so
           ASSET_URL=$(curl -s https://api.github.com/repos/mpv-android/mpv-android/releases/latest | jq -r '.assets[] | select(.name | contains("arm64-v8a")) | .browser_download_url')
-          wget "$ASSET_URL" -O donor_mpv.apk
-          unzip donor_mpv.apk "lib/arm64-v8a/libmpv.so" -d .
+          wget "$ASSET_URL" -O donor.apk
+          unzip donor.apk "lib/arm64-v8a/libmpv.so" -d .
           mv lib/arm64-v8a/libmpv.so .
-          
-          # УДАЛЯЕМ ВСЕ ЛИШНИЕ APK СРАЗУ
-          rm -f *.apk
-          echo "libmpv.so is ready. All donor APKs deleted."
+          rm donor.apk
 
           # 2. Подготовка Android Wheels
           mkdir -p wheels_dir
@@ -55,9 +53,10 @@ jobs:
           SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
 
-          # 3. СБОРКА
+          # 3. ИНИЦИАЛИЗАЦИЯ И СБОРКА С ЯВНЫМ УКАЗАНИЕМ build-type
           pyside6-android-deploy \
             --init \
+            --build-type release \
             --wheel-pyside "$PYSIDE_PATH" \
             --wheel-shiboken "$SHIBOKEN_PATH" \
             --sdk-path "$ANDROID_SDK_ROOT" \
@@ -65,21 +64,23 @@ jobs:
 
           pyside6-android-deploy \
             -v \
-            -c pysidedeploy.spec \
+            --config pysidedeploy.spec \
+            --build-type release \
             --name PureIPTV \
             --wheel-pyside "$PYSIDE_PATH" \
             --wheel-shiboken "$SHIBOKEN_PATH" \
             --sdk-path "$ANDROID_SDK_ROOT" \
             --ndk-path "$NDK_PATH"
           
-          # 4. ФИНАЛЬНЫЙ ПОИСК
-          mkdir -p final_out
-          # Ищем именно наш собранный APK (он в папке deployment или .buildozer)
-          find . -name "PureIPTV*.apk" -exec cp {} ./final_out/PureIPTV_Premium_Official.apk \;
+          # 4. ФИНАЛЬНЫЙ ПОИСК И ПРОВЕРКА
+          echo "Checking generated binaries..."
+          mkdir -p final_apk
+          # Buildozer обычно кладет результат в ./bin
+          find . -name "*.apk" -exec cp {} ./final_apk/PureIPTV_Premium_Official.apk \;
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: PureIPTV-Premium
-          path: "final_out/PureIPTV_Premium_Official.apk"
+          path: "final_apk/PureIPTV_Premium_Official.apk"
           if-no-files-found: error
