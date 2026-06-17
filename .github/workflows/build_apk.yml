@@ -6,35 +6,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install System Libs
+      - name: System Libs
         run: |
           sudo apt-get update
           sudo apt-get install -y wget unzip jq curl libmpv-dev libdouble-conversion3 libxcb-cursor0 libpcre2-16-0 libfontconfig1 libx11-xcb1 libicu-dev libxkbcommon-x11-0 libdbus-1-3 lld libssl-dev autoconf automake libtool
 
+      # ФИКС ПУТЕЙ ДЛЯ BUILDOZER
+      - name: Fix Android SDK Layout
+        run: |
+          sudo ln -s $ANDROID_HOME/cmdline-tools/latest $ANDROID_HOME/tools
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build APK
+      - name: Build
         run: |
-          # 1. Установка базовых инструментов
           python -m pip install --upgrade pip
-          pip install pyside6==6.8.0 shiboken6==6.8.0 requests python-mpv qtpip jinja2 pkginfo tqdm "packaging==24.1"
+          pip install buildozer cython pyside6==6.8.0 shiboken6==6.8.0 requests python-mpv qtpip jinja2 pkginfo tqdm "packaging==24.1"
           
-          # 2. Подготовка libmpv.so
+          # Забираем libmpv.so
           ASSET_URL=$(curl -s https://api.github.com/repos/mpv-android/mpv-android/releases/latest | jq -r '.assets[] | select(.name | contains("arm64-v8a")) | .browser_download_url')
           wget "$ASSET_URL" -O donor.apk
           unzip donor.apk "lib/arm64-v8a/libmpv.so" -d .
           mv lib/arm64-v8a/libmpv.so .
           rm donor.apk
 
-          # 3. Скачивание Android Wheels
+          # Качаем Wheels
           mkdir -p wheels_dir
           cd wheels_dir
           wget https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.0-6.8.0-cp311-cp311-android_aarch64.whl
@@ -45,8 +47,7 @@ jobs:
           SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)
 
-          # 4. ИНИЦИАЛИЗАЦИЯ И СБОРКА
-          # Используем прямой вызов команды и отвечаем "yes" на запросы
+          # СБОРКА
           yes | pyside6-android-deploy \
             --init \
             --wheel-pyside "$PYSIDE_PATH" \
@@ -61,10 +62,8 @@ jobs:
             --wheel-shiboken "$SHIBOKEN_PATH" \
             --sdk-path "$ANDROID_SDK_ROOT" \
             --ndk-path "$NDK_PATH"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+          
+      - uses: actions/upload-artifact@v4
         with:
           name: PureIPTV-Premium
           path: "**/*.apk"
-          if-no-files-found: error
