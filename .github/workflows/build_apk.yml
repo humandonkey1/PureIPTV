@@ -1,6 +1,8 @@
 name: Build Premium APK
 
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,11 +17,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             wget unzip jq curl \
-            libmpv-dev libdouble-conversion3 libxcb-cursor0 \
-            libpcre2-16-0 libfontconfig1 libx11-xcb1 \
-            libicu-dev libxkbcommon-x11-0 libdbus-1-3 lld \
-            libssl-dev autoconf automake libtool \
-            qt6-base-dev qt6-declarative-dev
+            libmpv-dev \
+            libdouble-conversion3 \
+            libxcb-cursor0 \
+            libpcre2-16-0 \
+            libfontconfig1 \
+            libx11-xcb1 \
+            libicu-dev \
+            libxkbcommon-x11-0 \
+            libdbus-1-3 \
+            lld \
+            libssl-dev \
+            autoconf automake libtool
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -59,28 +68,23 @@ jobs:
           wget https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-6.8.0-6.8.0-cp311-cp311-android_aarch64.whl
           cd ..
 
-      - name: Locate Android SDK and NDK
+      - name: Locate NDK path
         id: paths
         run: |
           echo "NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)" >> $GITHUB_OUTPUT
-          echo "QT_PATH=/usr/lib/qt6" >> $GITHUB_OUTPUT  # Ubuntu's Qt6 path
 
       - name: Build APK with pyside6-android-deploy
         run: |
           PYSIDE_PATH=$(readlink -f wheels_dir/PySide6-*.whl)
           SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           
-          yes | pyside6-android-deploy \
+          pyside6-android-deploy \
             -v \
             -c pysidedeploy.spec \
-            --mode release \
             --wheel-pyside "$PYSIDE_PATH" \
             --wheel-shiboken "$SHIBOKEN_PATH" \
             --sdk-path "$ANDROID_SDK_ROOT" \
-            --ndk-path "${{ steps.paths.outputs.NDK_PATH }}" \
-            --qt-path "${{ steps.paths.outputs.QT_PATH }}" \
-            --extra-libs libmpv.so \
-            --non-interactive
+            --ndk-path "${{ steps.paths.outputs.NDK_PATH }}"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
