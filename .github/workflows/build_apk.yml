@@ -41,7 +41,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Fix Android SDK layout (for buildozer compatibility)
+      - name: Fix Android SDK layout
         run: |
           sudo ln -sf $ANDROID_HOME/cmdline-tools/latest $ANDROID_HOME/tools
 
@@ -73,12 +73,16 @@ jobs:
         run: |
           echo "NDK_PATH=$(find $ANDROID_SDK_ROOT/ndk -maxdepth 1 -type d | tail -n 1)" >> $GITHUB_OUTPUT
 
+      - name: Accept Android SDK licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+
       - name: Build APK with pyside6-android-deploy
         run: |
           PYSIDE_PATH=$(readlink -f wheels_dir/PySide6-*.whl)
           SHIBOKEN_PATH=$(readlink -f wheels_dir/shiboken6-*.whl)
           
-          pyside6-android-deploy \
+          yes | pyside6-android-deploy \
             -v \
             -f \
             -c pysidedeploy.spec \
