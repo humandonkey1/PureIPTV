@@ -23,7 +23,7 @@ jobs:
           pip install PySide6 requests python-mpv
           pip install nuitka
 
-      - name: Build EXE with Nuitka (include QML modules)
+      - name: Build EXE with Nuitka (include QML plugins)
         run: |
           python -m nuitka `
             --standalone `
@@ -33,7 +33,7 @@ jobs:
             --include-data-dir=mpv=mpv `
             --include-data-file=main.qml=main.qml `
             --include-qt-plugins=qml `
-            --include-qt-modules=QtQuick,QtQuick.Controls,QtQuick.Controls.Material,QtQuick.Layouts,QtQuick.Dialogs `
+            --include-package=PySide6 `
             --assume-yes-for-downloads `
             --output-dir=build `
             main.py
