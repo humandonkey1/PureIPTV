@@ -33,19 +33,14 @@ jobs:
             --name PureIPTV `
             main.py
 
-      - name: Download and extract MPRESS
+      - name: Download MPRESS from official mirror
         run: |
-          curl -L -o mpress.zip "https://github.com/requaos/mPress/raw/main/mpress.exe"
-          mkdir mpress
-          move mpress.zip mpress\
-          cd mpress
-          unzip mpress.zip
-          del mpress.zip
+          curl -L -o mpress.exe "https://github.com/requaos/mPress/raw/main/mpress.exe"
         shell: pwsh
 
       - name: Compress EXE with MPRESS (maximum LZMA)
         run: |
-          .\mpress\mpress.exe -s -b dist\PureIPTV\PureIPTV.exe
+          .\mpress.exe -s -b dist\PureIPTV\PureIPTV.exe
         shell: pwsh
 
       - name: Test EXE (check for Python DLL errors)
