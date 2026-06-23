@@ -19,12 +19,10 @@ jobs:
 
       - name: Detect and extract archive
         run: |
-          # Ищем любые архивные файлы по расширениям
           for archive in *.tar.zst *.tar.gz *.tar.xz *.tar.bz2 *.zip *.rar; do
             if [ -f "$archive" ]; then
               echo "📦 Found: $archive"
               
-              # Определяем реальный MIME-тип
               file_type=$(file -b --mime-type "$archive")
               echo "🔍 MIME type: $file_type"
               
@@ -54,14 +52,13 @@ jobs:
                   tar -xjf "$archive"
                   rm -v "$archive"
                   ;;
-                application/vnd.rar)
+                application/vnd.rar|application/x-rar)
                   echo "📦 Extracting as rar"
                   unrar x -y "$archive"
                   rm -v "$archive"
                   ;;
                 *)
                   echo "⚠️ Unknown MIME type: $file_type"
-                  # Fallback: пробуем как tar
                   if tar -tf "$archive" &>/dev/null; then
                     echo "📦 Trying to extract as tar"
                     tar -xf "$archive"
