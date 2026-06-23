@@ -1,5 +1,4 @@
-# Через пять минут, меня не станет. Пожалуйста — распространяйте этот код и делайте его лучше. Это мой последний код. Прошайте
-name: Build with Nuitka and pack .zpaq
+name: Build with Nuitka (Fixed QML)
 
 on:
   push:
@@ -24,7 +23,7 @@ jobs:
           pip install PySide6 requests python-mpv
           pip install nuitka
 
-      - name: Build EXE with Nuitka
+      - name: Build EXE with Nuitka (include QML modules)
         run: |
           python -m nuitka `
             --standalone `
@@ -33,6 +32,8 @@ jobs:
             --windows-console-mode=disable `
             --include-data-dir=mpv=mpv `
             --include-data-file=main.qml=main.qml `
+            --include-qt-plugins=qml `
+            --include-qt-modules=QtQuick,QtQuick.Controls,QtQuick.Controls.Material,QtQuick.Layouts,QtQuick.Dialogs `
             --assume-yes-for-downloads `
             --output-dir=build `
             main.py
@@ -50,39 +51,21 @@ jobs:
           }
         shell: pwsh
 
-      - name: Verify zpaq.exe is present in repository root
+      - name: Pack EXE into ZIP
         run: |
-          if (-not (Test-Path "zpaq.exe")) {
-            Write-Host "❌ zpaq.exe not found in repository root!"
-            Write-Host "📌 Please download zpaq.exe and place it in the root folder"
-            Write-Host "🔗 Download from: http://mattmahoney.net/dc/zpaq715.zip"
-            exit 1
-          }
-          # Проверяем, что это валидный EXE
-          $bytes = Get-Content -Path "zpaq.exe" -TotalCount 2 -AsByteStream -ReadCount 2
-          $header = ($bytes[0], $bytes[1]) -join ','
-          if ($header -ne "77,90") {
-            Write-Host "❌ zpaq.exe is not a valid EXE (header: $header)"
-            exit 1
-          }
-          Write-Host "✅ zpaq.exe verified"
-        shell: pwsh
-
-      - name: Pack EXE into .zpaq archive
-        run: |
-          .\zpaq.exe a PureIPTV-Nuitka.zpaq "$env:EXE_PATH"
-          if (Test-Path "PureIPTV-Nuitka.zpaq") {
-            Write-Host "✅ Archive created: PureIPTV-Nuitka.zpaq"
-            $size = (Get-Item "PureIPTV-Nuitka.zpaq").Length
+          Compress-Archive -Path "$env:EXE_PATH" -DestinationPath PureIPTV.zip
+          if (Test-Path "PureIPTV.zip") {
+            Write-Host "✅ ZIP archive created: PureIPTV.zip"
+            $size = (Get-Item "PureIPTV.zip").Length
             Write-Host "📦 Archive size: $([math]::Round($size/1MB, 2)) MB"
           } else {
-            Write-Host "❌ Failed to create archive"
+            Write-Host "❌ Failed to create ZIP archive"
             exit 1
           }
         shell: pwsh
 
-      - name: Upload zpaq archive as artifact
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PureIPTV-Nuitka-zpaq
-          path: PureIPTV-Nuitka.zpaq
+          name: PureIPTV-Nuitka
+          path: PureIPTV.zip
