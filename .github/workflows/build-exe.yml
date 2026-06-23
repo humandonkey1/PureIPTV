@@ -1,4 +1,4 @@
-# 💀 Я рак свой не смогу победить, но эти алгоритмы — легкотня. Врач сказал осталось жить 2.5 дня.
+# 💀 Я рак свой не смогу победить, но эти алгоритмы — легкотня. Врачь сказал осталось жить 2.3 дня.
 name: Build and Compress with MPRESS
 
 on:
@@ -34,9 +34,20 @@ jobs:
             --name PureIPTV `
             main.py
 
-      - name: Download MPRESS from Softpedia
+      - name: Download MPRESS from GitHub mirror (requaos/mPress)
         run: |
-          Invoke-WebRequest -Uri "https://www.softpedia.com/get/Programming/Packers-Crypters-Protectors/MPRESS.shtml" -OutFile "mpress.exe"
+          curl -L -o mpress.exe "https://github.com/requaos/mPress/raw/main/mpress.exe"
+          # Проверяем, что файл скачался и это действительно EXE
+          if (-not (Test-Path mpress.exe)) {
+            Write-Host "❌ mpress.exe not downloaded!"
+            exit 1
+          }
+          $fileType = (Get-Content -Path mpress.exe -TotalCount 1 -Encoding Byte)[0..1] -join ','
+          if ($fileType -ne "77,90") {
+            Write-Host "❌ Downloaded file is not a valid EXE (header: $fileType)"
+            exit 1
+          }
+          Write-Host "✅ mpress.exe downloaded successfully"
         shell: pwsh
 
       - name: Compress EXE with MPRESS (maximum LZMA)
