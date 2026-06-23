@@ -1,4 +1,4 @@
-name: Build and Test Windows EXE (UPX)
+name: Build Windows EXE with UPX (Working)
 
 on:
   push:
@@ -29,59 +29,56 @@ jobs:
           echo "$env:GITHUB_WORKSPACE/upx/upx-4.2.4-win64" | Out-File -FilePath $env:GITHUB_PATH -Append
         shell: pwsh
 
-      - name: Build EXE with PyInstaller (with UPX exclude for problematic DLLs)
+      - name: Build with PyInstaller (onedir, not onefile)
         run: |
-          pyinstaller --onefile `
+          pyinstaller --onedir `
             --add-data "main.qml;." `
             --add-data "mpv;mpv" `
             --hidden-import PySide6.QtQml `
             --hidden-import PySide6.QtQuick `
             --strip `
-            --upx-exclude "_socket.pyd" `
-            --upx-exclude "python311.dll" `
+            --upx-dir "$env:GITHUB_WORKSPACE/upx/upx-4.2.4-win64" `
             --name PureIPTV `
             main.py
 
-      - name: Compress with UPX (force mode, exclude critical DLLs)
+      - name: Compress main.exe with UPX (not touching Python DLL)
         run: |
-          upx --best --lzma --force dist/PureIPTV.exe
+          upx --best --lzma --force dist/PureIPTV/PureIPTV.exe
         shell: pwsh
 
-      # =====================================================
-      # 🔥 САМЫЙ ВАЖНЫЙ ШАГ — АВТО-ТЕСТ .exe
-      # =====================================================
       - name: Test EXE (check for Python DLL errors)
         run: |
           Write-Host "🧪 Testing PureIPTV.exe for Python DLL loading issues..."
-          $exePath = "dist\PureIPTV.exe"
+          $exePath = "dist\PureIPTV\PureIPTV.exe"
           $output = & $exePath 2>&1
           $exitCode = $LASTEXITCODE
           
-          # Выводим полный вывод для отладки
           Write-Host "📄 Output:"
           Write-Host $output
           
-          # Проверяем наличие фатальной ошибки загрузки Python DLL
           $errorPattern = "Failed to load Python DLL|Invalid access to memory location|python311.dll"
           if ($output -match $errorPattern) {
-            Write-Host "❌ Python DLL Error detected in built EXE!"
+            Write-Host "❌ Python DLL Error detected!"
             Write-Host "🔍 Error details: $($output -match $errorPattern)"
             exit 1
           }
           
           if ($exitCode -ne 0) {
             Write-Host "⚠️ EXE crashed with exit code $exitCode, but no Python DLL error found."
-            # Можно продолжить — может, это просто выход без ошибки
           } else {
             Write-Host "✅ EXE loaded Python DLL successfully and executed without fatal errors."
           }
           
           Write-Host "🎉 Test passed! The EXE is safe to download."
         shell: pwsh
-        timeout-minutes: 2   # Защита от зависаний
+        timeout-minutes: 2
 
-      - name: Upload EXE artifact
+      - name: Zip the folder
+        run: |
+          Compress-Archive -Path dist/PureIPTV/* -DestinationPath PureIPTV-Portable.zip
+
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PureIPTV-EXE
-          path: dist/PureIPTV.exe
+          name: PureIPTV-Portable
+          path: PureIPTV-Portable.zip
