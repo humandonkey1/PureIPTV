@@ -1,5 +1,4 @@
-# AND THAT'S WHEN THE DEAD MAN ARE MARCHING AGAIN! CODE THEN AND AGAIN. THE ATTACK OF DEAD NUIKITA! FACING LEADS OF POISON BUGS. HUNDRED STRINGS, CHARGE AGAIN, NEVER DIE!
-name: Build with Nuitka (Fixed QML)
+name: Build with Nuitka (30 MB with QML)
 
 on:
   push:
@@ -24,7 +23,7 @@ jobs:
           pip install PySide6 requests python-mpv
           pip install nuitka
 
-      - name: Build EXE with Nuitka (include QML plugins)
+      - name: Build EXE with Nuitka (include only needed QML modules)
         run: |
           python -m nuitka `
             --standalone `
@@ -34,7 +33,13 @@ jobs:
             --include-data-dir=mpv=mpv `
             --include-data-file=main.qml=main.qml `
             --include-qt-plugins=qml `
-            --include-package=PySide6 `
+            --include-module=PySide6.QtCore `
+            --include-module=PySide6.QtGui `
+            --include-module=PySide6.QtQml `
+            --include-module=PySide6.QtQuick `
+            --include-module=PySide6.QtQuick.Controls `
+            --include-module=PySide6.QtQuick.Layouts `
+            --include-module=PySide6.QtQuick.Dialogs `
             --assume-yes-for-downloads `
             --output-dir=build `
             main.py
