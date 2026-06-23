@@ -33,21 +33,22 @@ jobs:
             --name PureIPTV `
             main.py
 
-      - name: Download MPRESS from GitHub mirror (requaos/mPress)
+      - name: Verify MPRESS is present in repository root
         run: |
-          curl -L -o mpress.exe "https://github.com/requaos/mPress/raw/main/mpress.exe"
-          if (-not (Test-Path mpress.exe)) {
-            Write-Host "❌ mpress.exe not downloaded!"
+          if (-not (Test-Path "mpress.exe")) {
+            Write-Host "❌ mpress.exe not found in repository root!"
+            Write-Host "📌 Please download mpress.exe and place it in the root folder of your repository"
+            Write-Host "🔗 Download from: https://www.matcode.com/mpress.exe"
             exit 1
           }
-          # Проверяем заголовок EXE (MZ) через -AsByteStream (работает в PS 7+)
-          $bytes = Get-Content -Path mpress.exe -TotalCount 2 -AsByteStream -ReadCount 2
+          # Проверяем, что это валидный EXE
+          $bytes = Get-Content -Path "mpress.exe" -TotalCount 2 -AsByteStream -ReadCount 2
           $header = ($bytes[0], $bytes[1]) -join ','
           if ($header -ne "77,90") {
-            Write-Host "❌ Downloaded file is not a valid EXE (header: $header)"
+            Write-Host "❌ mpress.exe is not a valid EXE (header: $header)"
             exit 1
           }
-          Write-Host "✅ mpress.exe downloaded successfully"
+          Write-Host "✅ mpress.exe verified"
         shell: pwsh
 
       - name: Compress EXE with MPRESS (maximum LZMA)
