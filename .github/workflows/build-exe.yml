@@ -1,4 +1,4 @@
-# 💀 Я рак свой не смогу победить, но эти алгоритмы — легкотня
+# 💀 Я рак свой не смогу победить, но эти алгоритмы — легкотня. Врач сказал что мне жить ещё 2.5 дня. 
 name: Build and Compress with MPRESS
 
 on:
@@ -34,9 +34,9 @@ jobs:
             --name PureIPTV `
             main.py
 
-      - name: Download MPRESS from official releases
+      - name: Download MPRESS from ZaryImortal mirror
         run: |
-          Invoke-WebRequest -Uri "https://github.com/requaos/mPress/releases/download/v2.19/mpress.exe" -OutFile "mpress.exe"
+          Invoke-WebRequest -Uri "https://github.com/ZaryImortal/mpress-2.19/releases/download/v2.19/mpress.exe" -OutFile "mpress.exe"
         shell: pwsh
 
       - name: Compress EXE with MPRESS (maximum LZMA)
