@@ -1,4 +1,4 @@
-name: Build Windows EXE with UPX (Final Fix)
+name: Build and Compress with MPRESS
 
 on:
   push:
@@ -17,19 +17,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install PySide6 requests python-mpv pyinstaller
 
-      - name: Download UPX
-        run: |
-          curl -L https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip -o upx.zip
-          Expand-Archive -Path upx.zip -DestinationPath upx
-          echo "$env:GITHUB_WORKSPACE/upx/upx-4.2.4-win64" | Out-File -FilePath $env:GITHUB_PATH -Append
-        shell: pwsh
-
-      - name: Build with PyInstaller (onedir, exclude all DLL and PYD from UPX)
+      - name: Build EXE with PyInstaller (onedir, no compression)
         run: |
           pyinstaller --onedir `
             --add-data "main.qml;." `
@@ -37,15 +30,22 @@ jobs:
             --hidden-import PySide6.QtQml `
             --hidden-import PySide6.QtQuick `
             --strip `
-            --upx-exclude "*.dll" `
-            --upx-exclude "*.pyd" `
-            --upx-dir "$env:GITHUB_WORKSPACE/upx/upx-4.2.4-win64" `
             --name PureIPTV `
             main.py
 
-      - name: Compress only PureIPTV.exe with UPX (not touching DLLs)
+      - name: Download and extract MPRESS
         run: |
-          upx --best --lzma --force dist/PureIPTV/PureIPTV.exe
+          curl -L -o mpress.zip "https://github.com/requaos/mPress/raw/main/mpress.exe"
+          mkdir mpress
+          move mpress.zip mpress\
+          cd mpress
+          unzip mpress.zip
+          del mpress.zip
+        shell: pwsh
+
+      - name: Compress EXE with MPRESS (maximum LZMA)
+        run: |
+          .\mpress\mpress.exe -s -b dist\PureIPTV\PureIPTV.exe
         shell: pwsh
 
       - name: Test EXE (check for Python DLL errors)
@@ -75,12 +75,8 @@ jobs:
         shell: pwsh
         timeout-minutes: 2
 
-      - name: Zip the folder
-        run: |
-          Compress-Archive -Path dist/PureIPTV/* -DestinationPath PureIPTV-Portable.zip
-
-      - name: Upload ZIP artifact
+      - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PureIPTV-Portable
-          path: PureIPTV-Portable.zip
+          name: PureIPTV-EXE
+          path: dist/PureIPTV/PureIPTV.exe
