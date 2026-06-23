@@ -19,42 +19,56 @@ jobs:
 
       - name: Detect and extract archive
         run: |
+          # Ищем любые архивные файлы по расширениям
           for archive in *.tar.zst *.tar.gz *.tar.xz *.tar.bz2 *.zip *.rar; do
             if [ -f "$archive" ]; then
               echo "📦 Found: $archive"
-              case "$archive" in
-                *.tar.zst)
-                  echo "🔍 Detected: tar.zst"
-                  tar -xf "$archive"
-                  rm -v "$archive"
-                  ;;
-                *.tar.gz)
-                  echo "🔍 Detected: tar.gz"
-                  tar -xzf "$archive"
-                  rm -v "$archive"
-                  ;;
-                *.tar.xz)
-                  echo "🔍 Detected: tar.xz"
-                  tar -xf "$archive"
-                  rm -v "$archive"
-                  ;;
-                *.tar.bz2)
-                  echo "🔍 Detected: tar.bz2"
-                  tar -xjf "$archive"
-                  rm -v "$archive"
-                  ;;
-                *.zip)
-                  echo "🔍 Detected: zip"
+              
+              # Определяем реальный MIME-тип
+              file_type=$(file -b --mime-type "$archive")
+              echo "🔍 MIME type: $file_type"
+              
+              case "$file_type" in
+                application/zip)
+                  echo "📦 Extracting as zip"
                   unzip -q "$archive"
                   rm -v "$archive"
                   ;;
-                *.rar)
-                  echo "🔍 Detected: rar"
+                application/x-tar|application/zstd)
+                  echo "📦 Extracting as tar/zstd"
+                  tar -xf "$archive"
+                  rm -v "$archive"
+                  ;;
+                application/gzip)
+                  echo "📦 Extracting as gzip (tar.gz)"
+                  tar -xzf "$archive"
+                  rm -v "$archive"
+                  ;;
+                application/x-xz)
+                  echo "📦 Extracting as xz (tar.xz)"
+                  tar -xf "$archive"
+                  rm -v "$archive"
+                  ;;
+                application/x-bzip2)
+                  echo "📦 Extracting as bzip2 (tar.bz2)"
+                  tar -xjf "$archive"
+                  rm -v "$archive"
+                  ;;
+                application/vnd.rar)
+                  echo "📦 Extracting as rar"
                   unrar x -y "$archive"
                   rm -v "$archive"
                   ;;
                 *)
-                  echo "⚠️ Unknown format: $archive"
+                  echo "⚠️ Unknown MIME type: $file_type"
+                  # Fallback: пробуем как tar
+                  if tar -tf "$archive" &>/dev/null; then
+                    echo "📦 Trying to extract as tar"
+                    tar -xf "$archive"
+                    rm -v "$archive"
+                  else
+                    echo "❌ Failed to extract $archive"
+                  fi
                   ;;
               esac
             fi
