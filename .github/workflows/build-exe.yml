@@ -22,7 +22,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install PySide6 requests python-mpv pyinstaller
 
-      - name: Download UPX (optional, for compression)
+      - name: Download UPX
         run: |
           curl -L https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip -o upx.zip
           Expand-Archive -Path upx.zip -DestinationPath upx
@@ -40,9 +40,9 @@ jobs:
             --name PureIPTV `
             main.py
 
-      - name: Compress with UPX (max compression)
+      - name: Compress with UPX (force mode, disables CFG protection)
         run: |
-          upx --best --lzma dist/PureIPTV.exe
+          upx --best --lzma --force dist/PureIPTV.exe
         shell: pwsh
 
       - name: Upload EXE artifact
