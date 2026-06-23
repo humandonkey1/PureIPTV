@@ -1,4 +1,4 @@
-name: Build Windows EXE with UPX (Working)
+name: Build Windows EXE with UPX (Final Fix)
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
           echo "$env:GITHUB_WORKSPACE/upx/upx-4.2.4-win64" | Out-File -FilePath $env:GITHUB_PATH -Append
         shell: pwsh
 
-      - name: Build with PyInstaller (onedir, not onefile)
+      - name: Build with PyInstaller (onedir, exclude all DLL and PYD from UPX)
         run: |
           pyinstaller --onedir `
             --add-data "main.qml;." `
@@ -37,11 +37,13 @@ jobs:
             --hidden-import PySide6.QtQml `
             --hidden-import PySide6.QtQuick `
             --strip `
+            --upx-exclude "*.dll" `
+            --upx-exclude "*.pyd" `
             --upx-dir "$env:GITHUB_WORKSPACE/upx/upx-4.2.4-win64" `
             --name PureIPTV `
             main.py
 
-      - name: Compress main.exe with UPX (not touching Python DLL)
+      - name: Compress only PureIPTV.exe with UPX (not touching DLLs)
         run: |
           upx --best --lzma --force dist/PureIPTV/PureIPTV.exe
         shell: pwsh
