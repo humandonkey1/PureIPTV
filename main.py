@@ -694,24 +694,35 @@ class IPTVWorker(QThread):
         try:
             ch, epg_db = [], {}
             headers = BROWSER_HEADERS.copy()
-            
-            if self.proto == "M3U (URL)":
-                ch = self._parse_m3u(self.host, headers)
-            elif self.proto == "M3U (Файл)":
-                ch = self._parse_m3u_file(self.host)
-            elif self.proto == "Xtream":
+
+            # Нормализуем имя протокола: QML и БД хранят короткие значения
+            # "M3U" / "XTREAM" / "STALKER", а старые ветки могли писать
+            # "M3U (URL)" / "M3U (Файл)" / "Xtream" / "Stalker".
+            # Поддерживаем обе формы, чтобы и старые записи не сломались.
+            proto_l = (self.proto or "").lower().strip()
+
+            if proto_l == "m3u" or proto_l.startswith("m3u"):
+                # В QML M3U объединён в одну вкладку — отличаем URL от файла по схеме
+                host_l = (self.host or "").lower().strip()
+                if host_l.startswith("http://") or host_l.startswith("https://"):
+                    ch = self._parse_m3u(self.host, headers)
+                else:
+                    ch = self._parse_m3u_file(self.host)
+            elif proto_l == "xtream" or proto_l.startswith("xtream"):
                 ch = self._parse_xtream(headers)
-            elif self.proto == "Stalker":
+            elif proto_l == "stalker" or proto_l.startswith("stalker"):
                 ch = self._parse_stalker(headers)
             else:
-                raise ValueError("Неизвестный протокол")
+                raise ValueError(f"Неизвестный протокол: '{self.proto}'")
 
             if self.epg and self.epg.strip():
                 epg_db = self._load_epg(self.epg, headers)
 
             self.finished.emit(ch, epg_db, "Успешно загружено")
         except Exception as e:
-            self.error.emit(str(e))
+            # Прокидываем тип исключения вместе с текстом — так в диалоге
+            # сразу понятно, сетевая это ошибка, парсинг или БД.
+            self.error.emit(f"{type(e).__name__}: {e}")
 
     def _parse_m3u(self, url, h):
         r = requests.get(url, headers=h, timeout=20)
