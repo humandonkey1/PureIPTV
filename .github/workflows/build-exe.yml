@@ -1,4 +1,4 @@
-# 💀 Я рак свой не смогу победить, но эти алгоритмы — легкотня. Врачь сказал осталось жить 2.3 дня.
+# 💀 Я рак свой не смогу победить, но эти алгоритмы — легкотня. Врач сказал осталось 2.2 дня.
 name: Build and Compress with MPRESS
 
 on:
@@ -37,14 +37,15 @@ jobs:
       - name: Download MPRESS from GitHub mirror (requaos/mPress)
         run: |
           curl -L -o mpress.exe "https://github.com/requaos/mPress/raw/main/mpress.exe"
-          # Проверяем, что файл скачался и это действительно EXE
           if (-not (Test-Path mpress.exe)) {
             Write-Host "❌ mpress.exe not downloaded!"
             exit 1
           }
-          $fileType = (Get-Content -Path mpress.exe -TotalCount 1 -Encoding Byte)[0..1] -join ','
-          if ($fileType -ne "77,90") {
-            Write-Host "❌ Downloaded file is not a valid EXE (header: $fileType)"
+          # Проверяем заголовок EXE (MZ) через чтение первых двух байт
+          $bytes = Get-Content -Path mpress.exe -TotalCount 2 -Encoding Byte -ReadCount 2
+          $header = ($bytes[0], $bytes[1]) -join ','
+          if ($header -ne "77,90") {
+            Write-Host "❌ Downloaded file is not a valid EXE (header: $header)"
             exit 1
           }
           Write-Host "✅ mpress.exe downloaded successfully"
