@@ -51,6 +51,10 @@ ApplicationWindow {
     property int currentChIndex: -1
     property string currentAspect: "no"
     property string targetVpnCountry: "Глобальный"
+    property string selSeriesId: ""
+    property string selSeriesName: ""
+    property string selSeason: ""
+    property var expandedSeasons: ({})
 
     // ============== АДАПТИВНАЯ ВЁРСТКА (ТВ / Планшет / Смартфон / ПК) ======
     property string deviceType: {
@@ -712,31 +716,99 @@ ApplicationWindow {
                     anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; spacing: 12
                     Button { text: "‹  Плейлисты"; flat: true; font.pixelSize: fsBody; onClicked: stack.pop() }
                     Button { text: "📁  Категории"; flat: true; visible: !window.showCategoriesSidebar; font.pixelSize: fsBody; onClicked: catDrawer.open() }
-                    Label {
-                        text: backend.current_playlist_name
-                        font.bold: true; font.pixelSize: fsTitle; color: c_text; Layout.fillWidth: true; elide: Text.ElideRight
-                    }
-                    TextField {
-                        id: searchBar
-                        placeholderText: "🔍  Поиск канала…"
-                        implicitWidth: 280 * scaleFactor
-                        font.pixelSize: fsBody
-                        text: window.searchQuery
-                        onTextChanged: { window.searchQuery = text; mainPageInstance.refreshChannels() }
-                    }
+                    Label { text: backend.current_playlist_name; font.bold: true; font.pixelSize: fsTitle; color: c_text; Layout.fillWidth: true; elide: Text.ElideRight }
+                    TextField { id: searchBar; placeholderText: "🔍  Поиск…"; implicitWidth: 260 * scaleFactor; font.pixelSize: fsBody; text: window.searchQuery; onTextChanged: { window.searchQuery = text; mainPageInstance.refreshChannels() } }
                 }
             }
 
             function refreshChannels() {
-                var list = backend.getFilteredChannels(window.activeCategory, window.searchQuery)
+                var list
+                if (backend.contentMode === "movies" || backend.contentMode === "series")
+                    list = backend.getFilteredItems(window.activeCategory, window.searchQuery)
+                else
+                    list = backend.getFilteredChannels(window.activeCategory, window.searchQuery)
                 window.currentFilteredList = list
                 clist.model = list
+                clist.contentY = 0
+            }
+            function loadMore() {
+                var more = backend.getMoreFiltered()
+                if (more && more.length > 0) {
+                    var arr = window.currentFilteredList.slice()
+                    for (var i = 0; i < more.length; i++) arr.push(more[i])
+                    window.currentFilteredList = arr
+                    clist.model = arr
+                }
+            }
+
+            property int seasonsVersion: 0
+
+            function enterSeriesDetail(seriesItem) {
+                window.selSeriesId = seriesItem.id
+                window.selSeriesName = seriesItem.name
+                window.selSeason = ""
+                window.expandedSeasons = ({})
+                mainPageInstance.seasonsVersion = 0
+                backend.loadSeriesInfo(seriesItem.id)
+                seriesDetail.visible = true
+            }
+            function exitSeriesDetail() {
+                seriesDetail.visible = false
+                window.selSeriesId = ""
+                window.selSeason = ""
+                window.expandedSeasons = ({})
+                mainPageInstance.seasonsVersion = 0
+            }
+
+            // Плоская модель: сезон-заголовки + серии (только раскрытых сезонов).
+            // Параметр v (seasonsVersion) заставляет QML перевычислять binding при изменении.
+            function buildSeasonModel(v) {
+                var flat = []
+                var seasons = backend.getSeriesSeasons(window.selSeriesId)
+                for (var si = 0; si < seasons.length; si++) {
+                    var s = seasons[si]
+                    var expanded = window.expandedSeasons[s.id] === true
+                    flat.push({ type: "season", sid: s.id, name: s.name, count: s.episode_count, expanded: expanded })
+                    if (expanded) {
+                        var eps = backend.getSeasonEpisodes(window.selSeriesId, s.id)
+                        for (var ei = 0; ei < eps.length; ei++)
+                            flat.push({ type: "episode", title: eps[ei].title, num: eps[ei].episode_num, url: eps[ei].url, id: eps[ei].id })
+                    }
+                }
+                return flat
+            }
+
+            // Переключение раскрытия сезона (вызывается из делегата — надёжная область)
+            function toggleSeason(sid) {
+                var s = window.expandedSeasons
+                if (s[sid] === true) delete s[sid]
+                else s[sid] = true
+                window.expandedSeasons = ({})
+                window.expandedSeasons = s
+                mainPageInstance.seasonsVersion++
             }
 
             Component.onCompleted: {
                 refreshChannels()
                 clist.forceActiveFocus()
                 backend.prefetchVisibleChannels()
+            }
+
+            Connections {
+                target: backend
+                function onContentModeChanged() { window.activeCategory = "Все"; mainPageInstance.refreshChannels() }
+                function onSeriesInfoReady(seriesId) {
+                    if (window.selSeriesId) {
+                        var seasons = backend.getSeriesSeasons(window.selSeriesId)
+                        if (seasons.length > 0) {
+                            window.selSeason = seasons[0].id
+                            var s = ({})
+                            s[seasons[0].id] = true
+                            window.expandedSeasons = s
+                            mainPageInstance.seasonsVersion++
+                        }
+                    }
+                }
             }
 
             // Тост умного предсказания
@@ -813,10 +885,48 @@ ApplicationWindow {
                 ColumnLayout {
                     Layout.fillWidth: true; Layout.fillHeight: true; spacing: 0
 
+                    // --- ПАНЕЛЬ ВКЛАДОК: Каналы / Фильмы / Сериалы (отдельная, не падает) ---
+                    Rectangle {
+                        Layout.fillWidth: true; height: 48; visible: backend.hasVod || backend.hasSeries
+                        color: Qt.rgba(7/255, 8/255, 14/255, 0.6)
+                        Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: c_borderSoft }
+                        Row {
+                            anchors.left: parent.left; anchors.leftMargin: 22; anchors.verticalCenter: parent.verticalCenter; spacing: 8
+                            Repeater {
+                                model: [ { mode: "live", icon: "📺", label: "Каналы", show: true },
+                                         { mode: "movies", icon: "🎬", label: "Фильмы", show: backend.hasVod },
+                                         { mode: "series", icon: "🎞", label: "Сериалы", show: backend.hasSeries } ]
+                                Rectangle {
+                                    visible: modelData.show; width: ctabInner.implicitWidth + 28; height: 34; radius: 17
+                                    property bool isAct: backend.contentMode === modelData.mode
+                                    color: isAct ? "transparent" : Qt.rgba(1,1,1,0.04)
+                                    border.color: isAct ? c_accent : "transparent"; border.width: 1.5
+                                    Rectangle { anchors.fill: parent; visible: isAct; radius: 17; gradient: Gradient { orientation: Gradient.Horizontal; GradientStop { position: 0.0; color: c_accent } GradientStop { position: 1.0; color: c_accent2 } } z: -1 }
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { backend.setContentMode(modelData.mode); mainPageInstance.exitSeriesDetail() } }
+                                    RowLayout { id: ctabInner; anchors.centerIn: parent; spacing: 6
+                                        Label { text: modelData.icon; font.pixelSize: 13; color: isAct ? c_bgDeep : c_text2 }
+                                        Label { text: modelData.label; font.bold: isAct; font.pixelSize: fsBody; color: isAct ? c_bgDeep : c_text2 }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     ListView {
                         id: clist
                         Layout.fillWidth: true; Layout.fillHeight: true
                         clip: true; boundsBehavior: Flickable.StopAtBounds; focus: true; spacing: 2
+                        // Пагинация: при прокрутке близко к концу подгружаем следующую порцию
+                        property bool _loadingMore: false
+                        onContentYChanged: {
+                            if (_loadingMore) return
+                            if (contentHeight <= 0) return
+                            if (contentY + height >= contentHeight - 400) {
+                                _loadingMore = true
+                                mainPageInstance.loadMore()
+                                _loadingMore = false
+                            }
+                        }
                         KeyNavigation.left: window.showCategoriesSidebar ? catList : null
                         KeyNavigation.right: window.showEpgSidebar ? elist : null
 
@@ -901,18 +1011,15 @@ ApplicationWindow {
 
                             function selectChannel() {
                                 clist.currentIndex = index
+                                if (backend.contentMode === "series") {
+                                    mainPageInstance.enterSeriesDetail(modelData)
+                                    return
+                                }
                                 window.selCh = modelData
                                 window.currentChIndex = index
                                 backend.updateEPG(modelData.id)
                                 backend.recordChannelClick(modelData)
                                 backend.play(modelData.url, modelData.name, modelData.group, "")
-                                var pred = backend.predictNextChannel(modelData)
-                                if (pred) {
-                                    var msg = pred.confidence >= 30
-                                        ? ("⚡ Вероятно следующий: " + pred.name + " (" + pred.confidence + "%, " + pred.source + ")")
-                                        : ("🔥 Готово к мгновенному старту: " + pred.candidates_count + " каналов")
-                                    console.log(msg)
-                                }
                                 stack.push(playerPage)
                             }
                             onHoveredChanged: if (hovered || activeFocus) backend.prefetchChannel(modelData)
@@ -982,6 +1089,88 @@ ApplicationWindow {
                                 onClicked: selectEpgItem()
                                 Keys.onReturnPressed: selectEpgItem()
                                 Keys.onEnterPressed: selectEpgItem()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- ПАНЕЛЬ ДЕТАЛЕЙ СЕРИАЛА: сезоны → серии ---
+            Rectangle {
+                id: seriesDetail
+                visible: false
+                anchors.fill: parent
+                color: Qt.rgba(5/255, 6/255, 14/255, 0.97)
+                z: 100
+
+                ColumnLayout {
+                    anchors.fill: parent; anchors.margins: 34; spacing: 18
+
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 14
+                        Rectangle { width: 42; height: 42; radius: 21; color: Qt.rgba(1,1,1,0.08); border.color: c_border; border.width: 1
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: mainPageInstance.exitSeriesDetail() }
+                            Label { anchors.centerIn: parent; text: "‹"; color: c_text; font.bold: true; font.pixelSize: 22 } }
+                        Label { text: window.selSeriesName; font.bold: true; font.pixelSize: fsHeader; color: c_text; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Label { text: backend.getSeriesSeasons(window.selSeriesId).length + " сезонов"; color: c_accent; font.pixelSize: fsSub; font.bold: true }
+                    }
+
+                    // --- ДЕРЕВО: сезоны как раскрывающиеся ПОДРАЗДЕЛЕНИЯ + серии внутри ---
+                    ListView {
+                        id: seasonTree
+                        Layout.fillWidth: true; Layout.fillHeight: true; clip: true; spacing: 4
+
+                        // Модель пересчитывается при изменении seasonsVersion (надёжный refresh)
+                        model: mainPageInstance.buildSeasonModel(mainPageInstance.seasonsVersion)
+
+                        delegate: Item {
+                            width: seasonTree.width
+                            height: 52
+                            readonly property bool isSeason: modelData.type === "season"
+
+                            // --- ЗАГОЛОВОК СЕЗОНА ---
+                            Rectangle {
+                                visible: parent.isSeason; anchors.fill: parent; anchors.margins: 4; radius: 12
+                                color: seaMa.containsMouse ? c_surface2 : c_surface
+                                border.color: modelData.expanded ? c_accent : c_borderSoft; border.width: modelData.expanded ? 1.5 : 1
+                                Behavior on color { ColorAnimation { duration: 130 } }
+                                MouseArea {
+                                    id: seaMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: mainPageInstance.toggleSeason(modelData.sid)
+                                }
+                                RowLayout {
+                                    anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; spacing: 12
+                                    Label { text: modelData.expanded ? "▾" : "▸"; color: c_accent; font.pixelSize: 18; font.bold: true; Layout.alignment: Qt.AlignVCenter; horizontalAlignment: Text.AlignHCenter }
+                                    Label { text: modelData.name || ""; color: c_text; font.bold: true; font.pixelSize: fsBody; Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter }
+                                    Label { text: (modelData.count || 0) + " серий"; color: c_text3; font.pixelSize: fsSub; Layout.alignment: Qt.AlignVCenter }
+                                    Label { text: "▶"; color: c_text3; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter; horizontalAlignment: Text.AlignHCenter }
+                                }
+                            }
+
+                            // --- СЕРИЯ: контент на той же горизонтали, что и заголовок сезона ---
+                            Rectangle {
+                                visible: !parent.isSeason; anchors.fill: parent; anchors.margins: 4; radius: 10
+                                color: epMa2.containsMouse ? c_surface2 : Qt.rgba(1,1,1,0.025)
+                                border.color: epMa2.containsMouse ? Qt.rgba(0.145,0.902,0.643,0.35) : "transparent"; border.width: 1
+                                Behavior on color { ColorAnimation { duration: 130 } }
+                                MouseArea {
+                                    id: epMa2; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        var ep = { "id": modelData.id || "", "name": modelData.title || "", "logo": "", "group": "Сериалы", "url": modelData.url || "" }
+                                        window.selCh = ep
+                                        backend.play(modelData.url || "", modelData.title || "", "Сериалы", "")
+                                        stack.push(playerPage)
+                                    }
+                                }
+                                // leftMargin 44 = 16 (как у сезона) + 28 (отступ подразделения).
+                                // spacing 12 и Layout.AlignVCenter — иконка/номер и ▶ на одном уровне с ▸/названием сезона
+                                RowLayout {
+                                    anchors.fill: parent; anchors.leftMargin: 44; anchors.rightMargin: 16; spacing: 12
+                                    Rectangle { width: 32; height: 32; radius: 8; color: Qt.rgba(0.145,0.902,0.643,0.12); border.color: c_accent; border.width: 1; Layout.alignment: Qt.AlignVCenter
+                                        Label { anchors.centerIn: parent; text: modelData.num || ""; color: c_accent; font.bold: true; font.pixelSize: fsSub } }
+                                    Label { text: modelData.title || ""; color: c_text; font.pixelSize: fsBody; Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; elide: Text.ElideRight }
+                                    Label { text: "▶"; color: c_text3; font.pixelSize: 14; Layout.alignment: Qt.AlignVCenter; horizontalAlignment: Text.AlignHCenter }
+                                }
                             }
                         }
                     }

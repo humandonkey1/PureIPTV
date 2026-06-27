@@ -48,6 +48,7 @@ from socketserver import ThreadingMixIn
 from datetime import datetime
 from xml.etree import ElementTree
 import time
+import traceback
 
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
@@ -190,7 +191,15 @@ class Database:
             c = self._conn
             c.execute("""CREATE TABLE IF NOT EXISTS playlists (
                 id INTEGER PRIMARY KEY, name TEXT, proto TEXT, host TEXT, epg TEXT,
-                user TEXT, pwd TEXT, mac TEXT, channels TEXT, epg_db TEXT)""")
+                user TEXT, pwd TEXT, mac TEXT, channels TEXT, epg_db TEXT,
+                movies TEXT, series TEXT, xtream_host TEXT, xtream_user TEXT, xtream_pwd TEXT)""")
+            # Миграция: добавляем колонки к старым БД
+            cur = c.execute("PRAGMA table_info(playlists)")
+            existing = {row[1] for row in cur.fetchall()}
+            for col, typ in [("movies", "TEXT"), ("series", "TEXT"),
+                             ("xtream_host", "TEXT"), ("xtream_user", "TEXT"), ("xtream_pwd", "TEXT")]:
+                if col not in existing:
+                    c.execute(f"ALTER TABLE playlists ADD COLUMN {col} {typ}")
             c.execute("""CREATE TABLE IF NOT EXISTS favorites (
                 playlist_id INTEGER, channel_id TEXT,
                 PRIMARY KEY (playlist_id, channel_id))""")
@@ -198,7 +207,6 @@ class Database:
                 id INTEGER PRIMARY KEY, ts INTEGER, channel_id TEXT,
                 channel_name TEXT, category TEXT, playlist_id INTEGER,
                 hour INTEGER, weekday INTEGER)""")
-            # Индексы под тяжёлые предсказательные запросы
             c.execute("CREATE INDEX IF NOT EXISTS idx_history_cid ON click_history(channel_id)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_history_hour ON click_history(hour)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_history_wday ON click_history(weekday)")
@@ -782,7 +790,10 @@ class IPTVWorker(QThread):
 
             self.finished.emit(ch, epg_db, "Успешно загружено")
         except Exception as e:
-            self.error.emit(f"{type(e).__name__}: {e}")
+            traceback.print_exc()
+            err_msg = f"{type(e).__name__}: {e}"
+            print(f"❌ [Worker] ОШИБКА ЗАГРУЗКИ: {err_msg}")
+            self.error.emit(err_msg)
 
     # --- M3U ---
     def _parse_m3u(self, url, h):
@@ -816,32 +827,134 @@ class IPTVWorker(QThread):
                 current = {}
         return ch
 
-    # --- Xtream ---
+    # --- Xtream: каналы + фильмы (VOD) + сериалы (ПОСЛЕДОВАТЕЛЬНО с ретраями) ---
     def _parse_xtream(self, h):
-        base = self.host.rstrip('/')
-        cats = {}
-        try:
-            cat_res = requests.get(
-                f"{base}/player_api.php?username={self.user}&password={self.pwd}&action=get_live_categories",
-                headers=h, timeout=15).json()
-            for c in cat_res:
-                cats[str(c.get('category_id'))] = c.get('category_name')
-        except Exception as e:
-            print(f"⚠️ Xtream cats: {e}")
+        """Загружает все 3 раздела Xtream ПОСЛЕДОВАТЕЛЬНО с ретраями.
 
-        res = requests.get(
-            f"{base}/player_api.php?username={self.user}&password={self.pwd}&action=get_live_streams",
-            headers=h, timeout=25).json()
+        Почему не параллельно: большинство Xtream-серверов ограничивают
+        max_connections (часто = 1). Параллельные запросы ломают лимит →
+        сервер режектит часть ответов → пустой JSON → ошибка.
+        Последовательный подход с keep-alive и ретраями — надёжный и быстрый."""
+        base = self.host.rstrip('/')
+        api_base = f"{base}/player_api.php?username={self.user}&password={self.pwd}"
+        results = {}
+
+        def fetch(action, retries=4):
+            """Запрос с ретраями + умная распаковка Xtream-обёрток.
+            Сервер может вернуть:
+              - [...список...]               → норма
+              - {"js": [...список...]}       → стандартная Xtream-обёртка, распаковать
+              - {"user_info":...}            → auth-ответ (нет данных) → []
+            """
+            url = f"{api_base}&action={action}"
+            for attempt in range(retries):
+                try:
+                    r = requests.get(url, headers={**h, "Connection": "close"}, timeout=45)
+                    txt = r.text.strip()
+                    if not txt:
+                        raise ValueError("пустой ответ")
+                    data = json.loads(txt)
+                    # Распаковка Xtream-обёртки {"js": [...]}
+                    if isinstance(data, dict):
+                        if "js" in data:
+                            inner = data["js"]
+                            return inner if isinstance(inner, list) else []
+                        # Нет ключа js — это auth/error-ответ без данных
+                        if "user_info" in data:
+                            raise ValueError("auth-сброс (повтор)")
+                        raise ValueError(f"dict без данных: {list(data.keys())}")
+                    if isinstance(data, list):
+                        return data
+                    raise ValueError(f"неожиданный тип: {type(data).__name__}")
+                except Exception as e:
+                    if attempt < retries - 1:
+                        time.sleep(1.5)
+                        continue
+                    print(f"⚠️ Xtream {action}: {e}")
+                    return []
+            return []
+
+        # ПОСЛЕДОВАТЕЛЬНО: live → VOD → series (keep-alive переиспользует соединение)
+        for action in ["get_live_categories", "get_live_streams",
+                       "get_vod_categories", "get_vod_streams",
+                       "get_series_categories", "get_series"]:
+            results[action] = fetch(action)
+
+        def catmap(action):
+            """Безопасное извлечение категорий: сервер Xtream иногда отдаёт
+            строку-ошибку или None вместо списка словарей. Пропускаем мусор."""
+            m = {}
+            raw = results.get(action)
+            if not isinstance(raw, list):
+                return m
+            for c in raw:
+                if isinstance(c, dict):
+                    cid = c.get('category_id')
+                    if cid is not None:
+                        m[str(cid)] = c.get('category_name', '')
+            return m
+
+        def safe_list(action):
+            """Возвращает только словари из ответа сервера (фильтрует строки/None)."""
+            raw = results.get(action)
+            if not isinstance(raw, list):
+                print(f"⚠️ Xtream {action}: сервер вернул {type(raw).__name__}, пропускаю")
+                return []
+            return [i for i in raw if isinstance(i, dict)]
+
+        live_cats = catmap("get_live_categories")
         ch = []
-        for i in res:
+        for i in safe_list("get_live_streams"):
             cid = str(i.get('category_id', ''))
+            sid = i.get('stream_id')
+            if sid is None:
+                continue
             ch.append({
-                "id": str(i.get('epg_channel_id', i.get('name'))),
-                "name": i.get('name'),
-                "logo": i.get('stream_icon', ''),
-                "group": cats.get(cid) or "Общие",
-                "url": f"{base}/live/{self.user}/{self.pwd}/{i.get('stream_id')}.ts"
+                "id": str(sid),
+                "name": i.get('name', '') or "Без названия",
+                "logo": i.get('stream_icon', '') or "",
+                "group": live_cats.get(cid) or "Общие",
+                "url": f"{base}/live/{self.user}/{self.pwd}/{sid}.m3u8"
             })
+
+        vod_cats = catmap("get_vod_categories")
+        movies = []
+        for i in safe_list("get_vod_streams"):
+            cid = str(i.get('category_id', ''))
+            sid = i.get('stream_id')
+            if sid is None:
+                continue
+            ext = i.get('container_extension') or 'mp4'
+            movies.append({
+                "id": "vod_" + str(sid),
+                "name": i.get('name', '') or "Без названия",
+                "logo": i.get('stream_icon', '') or "",
+                "group": vod_cats.get(cid) or "Фильмы",
+                "url": f"{base}/movie/{self.user}/{self.pwd}/{sid}.{ext}",
+                "rating": i.get('rating_5based', 0) or 0,
+                "plot": i.get('plot', '') or ""
+            })
+
+        series_cats = catmap("get_series_categories")
+        series = []
+        for i in safe_list("get_series"):
+            cid = str(i.get('category_id', ''))
+            sid = i.get('series_id')
+            if sid is None:
+                continue
+            series.append({
+                "id": "series_" + str(sid),
+                "series_id": str(sid),
+                "name": i.get('name', '') or "Без названия",
+                "logo": i.get('cover', '') or "",
+                "group": series_cats.get(cid) or "Сериалы",
+                "plot": i.get('plot', '') or "",
+                "rating": i.get('rating', 0) or 0
+            })
+
+        self.movies = movies
+        self.series = series
+        print(f"[Xtream] live={len(ch)}, movies={len(movies)}, series={len(series)}")
         return ch
 
     # --- Stalker ---
@@ -936,6 +1049,8 @@ class IPTVCore(QObject):
     segmentDownloaded = Signal(float)
     availableQualitiesChanged = Signal()
     bandwidthSaverChanged = Signal()
+    contentModeChanged = Signal()
+    seriesInfoReady = Signal(str)
 
     def __init__(self, engine):
         super().__init__()
@@ -963,6 +1078,19 @@ class IPTVCore(QObject):
         self._available_qualities = ["auto", "ultra", "high", "medium", "low", "minimal"]
         self._qualities_analyzed = False
 
+        # === КОНТЕНТ-МОДЕЛИ: каналы / фильмы / сериалы ===
+        self._movies = []
+        self._series = []
+        self._content_mode = "live"
+        self._xtream = {"host": "", "user": "", "pwd": ""}
+        self._series_info_cache = {}
+        self._current_proto = ""
+
+        # === ИНДЕКСЫ ДЛЯ МГНОВЕННОЙ ФИЛЬТРАЦИИ (работает с любым объёмом) ===
+        self._cat_cache = {}            # mode -> [sorted category names]
+        self._group_index = {}          # mode -> {group: [channels]}
+        self._epg_starts_cache = {}     # cid -> (sorted_starts_list, epg_list)
+
         # === ФЛАГИ ЭКОНОМИИ ТРАФИКА (по умолчанию ВЫКЛЮЧЕНЫ) ===
         self._disable_logos = False
         self._skip_country_detect = False
@@ -983,7 +1111,7 @@ class IPTVCore(QObject):
     def _init_mpv(self):
         try:
             self.player = mpv.MPV(
-                vo='gpu', hwdec='auto-safe', ytdl=False, osc=False,
+                vo='gpu', hwdec='auto-copy', ytdl=False, osc=False,
                 input_default_bindings=False, input_vo_keyboard=True,
 
                 keep_open='yes', keep_open_pause='no', hr_seek='yes',
@@ -1023,6 +1151,10 @@ class IPTVCore(QObject):
             if v is not None and v > 0:
                 self.playingChanged.emit(True)
                 self._retry_count = 0
+                # Видео реально играет → поток работает отлично.
+                # НЕ ставим poor от кратковременной буферизации при старте.
+                if not self._is_buffering:
+                    self._set_connection_quality("excellent")
                 if not self._qualities_analyzed:
                     self._qualities_analyzed = True
                     QTimer.singleShot(0, self._update_available_qualities_from_tracks)
@@ -1052,10 +1184,13 @@ class IPTVCore(QObject):
                 self.bufferingChanged.emit()
                 if self._is_buffering:
                     self._set_status("Буферизация...")
-                    self._set_connection_quality("poor")
+                    # Не ставим poor при кратковременной буферизации —
+                    # подождём, видео может продолжиться через секунду.
+                    # Quality останется как было (good/excellent от time-pos).
                 else:
                     self._retry_count = 0
                     self._set_status("Воспроизведение...")
+                    self._set_connection_quality("excellent")
         except Exception as e:
             print(f"⚠️ Failed to observe paused-for-cache: {e}")
 
@@ -1173,9 +1308,15 @@ class IPTVCore(QObject):
         self._schedule_reconnect()
 
     def _test_connection_quality(self, url):
+        """Тест соединения через GET (а не HEAD — Xtream-серверы режектят HEAD).
+        Если тест не удался — НЕ ставим 'poor', оставляем 'unknown'
+        и ждём обновления от скорости скачивания сегментов."""
         try:
             start = time.time()
-            r = http_session.head(url, timeout=10, allow_redirects=True)
+            # GET со stream=True — открываем и сразу закрываем, не качая тело
+            r = requests.get(url, headers={**BROWSER_HEADERS, "Connection": "close"},
+                             timeout=10, stream=True, allow_redirects=True)
+            r.close()
             duration = time.time() - start
             if r.status_code in (200, 301, 302):
                 if duration < 0.5:
@@ -1191,14 +1332,15 @@ class IPTVCore(QObject):
                 return q
         except Exception:
             pass
-        self._set_connection_quality("poor")
-        return "poor"
+        # НЕ ставим 'poor' — пусть обновится от скорости сегментов
+        print("📶 Connection test skipped, waiting for segment speed...")
+        return "unknown"
 
     @Slot(float)
     def update_connection_quality_from_speed(self, speed_kb):
-        if self._is_buffering:
-            quality = "poor"
-        elif speed_kb > 2500:
+        # Не ставим poor просто из-за кратковременной буферизации при старте —
+        # оцениваем реальную скорость скачивания сегментов
+        if speed_kb > 2500:
             quality = "excellent"
         elif speed_kb > 1000:
             quality = "good"
@@ -1226,8 +1368,79 @@ class IPTVCore(QObject):
 
     @Property(list, notify=channelsChanged)
     def categories(self):
-        cats = {c.get("group", "Общие") for c in self._ch}
-        return ["Все каналы", "★ Избранные"] + sorted(cats)
+        # O(1): берём готовый кэш, построенный при loadPlaylist.
+        cats = self._cat_cache.get(self._content_mode)
+        if cats is None:
+            self._rebuild_indexes()
+            cats = self._cat_cache.get(self._content_mode, [])
+        return ["Все", "★ Избранные"] + cats
+
+    @Property(str, notify=contentModeChanged)
+    def contentMode(self): return self._content_mode
+
+    @Property(bool, notify=channelsChanged)
+    def hasVod(self): return len(self._movies) > 0
+
+    @Property(bool, notify=channelsChanged)
+    def hasSeries(self): return len(self._series) > 0
+
+    @Slot(str)
+    def setContentMode(self, mode):
+        if mode in ("live", "movies", "series") and mode != self._content_mode:
+            self._content_mode = mode
+            self._filtered_cache = None
+            self.contentModeChanged.emit()
+            self.channelsChanged.emit()
+
+    # Потолок выдачи за один вызов: QML-ListView виртуальный, но сам list
+    # из Python в QML копируется целиком — поэтому режем, чтобы при любом
+    # объёме (хоть 99 трлн) фильтрация оставалась мгновенной. Остальное
+    # подгружается через getMoreFiltered при прокрутке к концу.
+    _MAX_RESULT = 800
+    _filtered_cache = None
+    _filtered_state = None
+
+    @Slot(str, str, result=list)
+    def getFilteredItems(self, cat, query):
+        """Универсальный фильтр. Использует индекс по группам (O(1) для выбора
+        категории) и лимит выдачи. Поиск выполняется только внутри выбранной
+        группы — а не по всему массиву."""
+        src = self._items_for_mode()
+        q = query.lower().strip()
+        if not q:
+            pool = self._group_pool(cat, src)
+        else:
+            pool = self._group_pool(cat, src)
+            pool = [c for c in pool if q in (c.get("name", "") or "").lower()]
+        self._filtered_cache = pool
+        self._filtered_state = (cat, q)
+        return pool[:self._MAX_RESULT] if len(pool) > self._MAX_RESULT else pool
+
+    def _items_for_mode(self):
+        if self._content_mode == "movies":
+            return self._movies
+        if self._content_mode == "series":
+            return self._series
+        return self._ch
+
+    def _group_pool(self, cat, full_src):
+        """Возвращает исходный массив для фильтрации по категории — мгновенно,
+        через готовый индекс _group_index, без полного обхода."""
+        if cat in ("Все", "Все каналы"):
+            return full_src
+        if cat == "★ Избранные":
+            return [c for c in full_src if c.get("id") in self._fav_ids]
+        gi = self._group_index.get(self._content_mode, {})
+        return gi.get(cat, [])
+
+    @Slot(result=list)
+    def getMoreFiltered(self):
+        """Пагинация: следующую порцию каналов для подгрузки при прокрутке."""
+        pool = self._filtered_cache or []
+        start = getattr(self, "_filtered_offset", self._MAX_RESULT)
+        chunk = pool[start:start + self._MAX_RESULT]
+        self._filtered_offset = start + self._MAX_RESULT
+        return chunk
 
     @Property(str, notify=connectionQualityChanged)
     def connectionQuality(self): return self._connection_quality
@@ -1376,36 +1589,60 @@ class IPTVCore(QObject):
     @Slot(int)
     def loadPlaylist(self, pid):
         r = self.db.fetchone(
-            "SELECT name, proto, channels, epg_db FROM playlists WHERE id=?", (pid,))
+            "SELECT name, proto, channels, epg_db, movies, series, "
+            "xtream_host, xtream_user, xtream_pwd FROM playlists WHERE id=?", (pid,))
         if r:
             self.current_playlist_id = pid
             self._current_playlist_name = r["name"]
+            self._current_proto = (r.get("proto") or "").upper()
             try:
                 self._ch = json.loads(r["channels"])
                 self._ed = json.loads(r["epg_db"])
             except Exception:
                 self._ch, self._ed = [], {}
+            self._movies = json.loads(r.get("movies") or "[]")
+            self._series = json.loads(r.get("series") or "[]")
+            self._xtream = {"host": r.get("xtream_host") or "",
+                            "user": r.get("xtream_user") or "",
+                            "pwd": r.get("xtream_pwd") or ""}
+            self._content_mode = "live"
+            self._series_info_cache = {}
+            self._rebuild_indexes()   # мгновенная фильтрация и EPG
             favs = self.db.fetchall(
                 "SELECT channel_id FROM favorites WHERE playlist_id=?", (pid,))
             self._fav_ids = {f["channel_id"] for f in favs}
             self.channelsChanged.emit()
+            self.contentModeChanged.emit()
+
+    def _rebuild_indexes(self):
+        """Индексы для мгновенной фильтрации/EPG. Строится один раз при загрузке."""
+        self._cat_cache = {}
+        self._group_index = {}
+        for mode, src in (("live", self._ch), ("movies", self._movies), ("series", self._series)):
+            groups = {}
+            cats = set()
+            for c in src:
+                g = c.get("group", "Общие") or "Общие"
+                cats.add(g)
+                groups.setdefault(g, []).append(c)
+            self._cat_cache[mode] = sorted(cats)
+            self._group_index[mode] = groups
+        self._epg_starts_cache = {}
+        for cid, plist in self._ed.items():
+            self._epg_starts_cache[cid] = sorted(p.get("start", "") for p in plist)
 
     @Slot(str, str, result=list)
     def getFilteredChannels(self, cat, query):
+        """Каналы: тот же механизм — индекс по группам + лимит."""
+        src = self._ch
         q = query.lower().strip()
-        result = []
-        for c in self._ch:
-            if q and q not in c.get("name", "").lower():
-                continue
-            if cat == "Все каналы":
-                result.append(c)
-            elif cat == "★ Избранные":
-                if c.get("id") in self._fav_ids:
-                    result.append(c)
-            else:
-                if c.get("group", "Общие") == cat:
-                    result.append(c)
-        return result
+        pool = self._group_pool(cat, src)
+        if q:
+            pool = [c for c in pool if q in (c.get("name", "") or "").lower()]
+        self._filtered_cache = pool
+        self._filtered_state = (cat, q)
+        self._filtered_offset = self._MAX_RESULT
+        return pool[:self._MAX_RESULT] if len(pool) > self._MAX_RESULT else pool
 
     @Slot(str, result=bool)
     def toggleFavorite(self, cid):
@@ -1442,15 +1679,25 @@ class IPTVCore(QObject):
         self.w.start()
 
     def _on_loaded(self, name, proto, host, epg, user, pwd, mac, ch, epg_db):
-        if not ch:
+        movies = getattr(self.w, "movies", [])
+        series = getattr(self.w, "series", [])
+        # Для Xtream валиден, если есть ХОТЯ БЫ ОДИН раздел (live ИЛИ фильмы ИЛИ сериалы).
+        # Раньше проверялся только ch (каналы) — если сервер вернул пустой live,
+        # но отдал фильмы/сериалы, плейлист считался «пустым» → ложная ошибка.
+        if not ch and not movies and not series:
+            print(f"❌ [Load] ПУСТОЙ ПЛЕЙЛИСТ: ch={len(ch)}, movies={len(movies)}, series={len(series)}")
             self._set_status("Ошибка: пустой плейлист!")
-            self.loadFailed.emit("Плейлист пуст")
+            self.loadFailed.emit("Плейлист пуст (сервер не вернул ни каналов, ни фильмов, ни сериалов)")
             return
         try:
+            is_xt = (proto or "").upper().startswith("XTREAM")
             self.db.execute(
-                "INSERT INTO playlists (name, proto, host, epg, user, pwd, mac, channels, epg_db) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (name, proto, host, epg, user, pwd, mac, json.dumps(ch), json.dumps(epg_db)))
+                "INSERT INTO playlists (name, proto, host, epg, user, pwd, mac, channels, epg_db, "
+                "movies, series, xtream_host, xtream_user, xtream_pwd) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, proto, host, epg, user, pwd, mac, json.dumps(ch), json.dumps(epg_db),
+                 json.dumps(movies), json.dumps(series),
+                 host if is_xt else "", user if is_xt else "", pwd if is_xt else ""))
             self.db.commit()
             self._set_status("Добавлено!")
             self.playlistsChanged.emit()
@@ -1460,6 +1707,7 @@ class IPTVCore(QObject):
             self.loadFailed.emit(str(e))
 
     def _on_error(self, msg):
+        print(f"❌ [Core] ОШИБКА ЗАГРУЗКИ ПЛЕЙЛИСТА: {msg}")
         self._set_status(f"Ошибка: {msg}")
         self.loadFailed.emit(msg)
 
@@ -1497,31 +1745,103 @@ class IPTVCore(QObject):
 
     @Slot(str, result=str)
     def getCurrentEPG(self, cid):
-        """
-        Возвращает ПЕРЕДАЧУ, ИДУЩУЮ СЕЙЧАС (а не первую в списке).
-        EPG отсортирован по start (YYYYMMDDHHMMSS). Бинарный поиск последней
-        передачи с start <= now. Если все в будущем — берём ближайшую.
-        """
-        epg_list = self._ed.get(cid, [])
+        """Текущая передача. starts берётся из предвычисленного кэша
+        (_epg_starts_cache) — без пересоздания списка при каждом вызове.
+        Поэтому даже при десятках тысяч каналов это мгновенный bisect."""
+        epg_list = self._ed.get(cid)
         if not epg_list:
             return "Нет программы"
-
-        now = datetime.now().strftime("%Y%m%d%H%M%S")
+        starts = self._epg_starts_cache.get(cid)
+        if starts is None:
+            starts = sorted(p.get("start", "") for p in epg_list)
+            self._epg_starts_cache[cid] = starts
         import bisect
-        starts = [p.get("start", "") for p in epg_list]
-
-        # Индекс первого элемента строго после now
+        now = datetime.now().strftime("%Y%m%d%H%M%S")
         idx = bisect.bisect_right(starts, now)
-
         if idx > 0:
-            # Текущая/последняя начавшаяся передача
             return epg_list[idx - 1].get("title", "") or "Нет программы"
-        # Все передачи в будущем — показываем ближайшую
         return epg_list[0].get("title", "") or "Нет программы"
 
     @Slot(str, str, result=str)
     def getArchiveUrl(self, url, start_raw):
         return _append_utc(url, start_raw)
+
+    # --------------------------------------------------------
+    #  СЕРИАЛЫ: сезоны и серии (get_series_info)
+    # --------------------------------------------------------
+    @Slot(str)
+    def loadSeriesInfo(self, series_id):
+        """Асинхронно грузит get_series_info и кэширует; эммитит seriesInfoReady."""
+        # чистим числовой series_id (в списке хранится как series_123 → 123)
+        sid = str(series_id).replace("series_", "")
+        if sid in self._series_info_cache:
+            self.seriesInfoReady.emit(sid)
+            return
+        threading.Thread(target=self._fetch_series_info, args=(sid,), daemon=True).start()
+
+    def _fetch_series_info(self, sid):
+        try:
+            host = self._xtream.get("host", "").rstrip("/")
+            user = self._xtream.get("user", "")
+            pwd = self._xtream.get("pwd", "")
+            if not host:
+                return
+            url = (f"{host}/player_api.php?username={user}&password={pwd}"
+                   f"&action=get_series_info&series_id={sid}")
+            data = http_session.get(url, headers=BROWSER_HEADERS, timeout=30).json()
+            self._series_info_cache[sid] = data
+            self.seriesInfoReady.emit(sid)
+            print(f"[Series] info loaded for {sid}: seasons={list(data.get('episodes', {}).keys())}")
+        except Exception as e:
+            print(f"[Series] info error: {e}")
+
+    @Slot(str, result='QVariant')
+    def getSeriesSeasons(self, series_id):
+        """Возвращает список сезонов [{id, name, episode_count}] для сериала."""
+        sid = str(series_id).replace("series_", "")
+        info = self._series_info_cache.get(sid, {})
+        episodes = info.get("episodes", {})
+        seasons = []
+        for sk in sorted(episodes.keys(), key=lambda x: int(x) if str(x).isdigit() else 999):
+            elist = episodes.get(sk, [])
+            seasons.append({
+                "id": str(sk),
+                "name": f"Сезон {sk}",
+                "episode_count": len(elist)
+            })
+        return seasons
+
+    @Slot(str, str, result='QVariant')
+    def getSeasonEpisodes(self, series_id, season):
+        """Возвращает серии сезона [{title, episode_num, url}]."""
+        import re as _re
+        sid = str(series_id).replace("series_", "")
+        info = self._series_info_cache.get(sid, {})
+        episodes = info.get("episodes", {}).get(str(season), [])
+        host = self._xtream.get("host", "").rstrip("/")
+        user = self._xtream.get("user", "")
+        pwd = self._xtream.get("pwd", "")
+        result = []
+        for idx, ep in enumerate(episodes):
+            eid = ep.get("id")
+            ext = ep.get("container_extension", "mp4")
+            url = f"{host}/series/{user}/{pwd}/{eid}.{ext}" if host and eid else ""
+            title = ep.get("title", "") or f"Эпизод {idx + 1}"
+            # episode_num может быть int, str, или отсутствовать.
+            # Фолбэк: достаём из title "S01E0001" → "1"
+            ep_num = ep.get("episode_num", "")
+            if ep_num in (None, "", 0, "0"):
+                m = _re.search(r'E(\d+)', title)
+                ep_num = str(int(m.group(1))) if m else str(idx + 1)
+            else:
+                ep_num = str(ep_num).lstrip("0") or "0"
+            result.append({
+                "title": title,
+                "episode_num": ep_num,
+                "url": url,
+                "id": str(eid) if eid is not None else str(idx)
+            })
+        return result
 
     # --------------------------------------------------------
     #  ПРЕДЗАГРУЗКА КАНАЛОВ (мгновенный старт)
@@ -1619,10 +1939,15 @@ class IPTVCore(QObject):
         except Exception as e:
             print(f"[Predictor] record error: {e}")
 
+    def _all_content(self):
+        """Все элементы контента (каналы + фильмы + сериалы) — для поиска предсказаний."""
+        return self._ch + self._movies + self._series
+
     @Slot('QVariant', result='QVariant')
     def predictNextChannel(self, current_ch):
         """Многоступенчатое предсказание + префетч топ-кандидатов.
-        Учитывает последовательность, время суток, день недели, категорию."""
+        Учитывает последовательность, время суток, день недели, категорию.
+        Ищет кандидатов по ВСЕМУ контенту (каналы + фильмы + сериалы)."""
         try:
             if not current_ch or not isinstance(current_ch, dict):
                 return None
@@ -1684,10 +2009,12 @@ class IPTVCore(QObject):
 
             sorted_cands = sorted(candidates.items(), key=lambda x: -x[1][2])
             top5 = sorted_cands[:5]
+            # Ищем кандидатов по ВСЕМУ контенту (каналы + фильмы + сериалы)
+            pool = self._all_content()
             for cid, _ in top5:
-                for ch in self._ch:
-                    if ch.get('id') == cid:
-                        self.prefetchChannel(ch)
+                for item in pool:
+                    if item.get('id') == cid:
+                        self.prefetchChannel(item)
                         break
 
             top_id, (top_name, top_cat, top_score, top_src) = top5[0]
@@ -1731,16 +2058,16 @@ class IPTVCore(QObject):
             # 3. Переключение видеодорожки (мульти-битрейт внутри потока) — на лету
             self._apply_runtime_quality_track(quality)
 
-            # 4. ABR-выбор через HLS-прокси требует чистки кэша + релоада
-            if self._last_url:
+            # 4. ABR-выбор через HLS-прокси (только для проксируемых потоков!).
+            # Перезагрузка прямых Xtream-потоков с max_connections=1 убивает плейбэк.
+            if self._last_url and self._needs_proxy(self._last_url):
                 HLSCache.clear()
                 pos = self.player.time_pos
                 is_live = (self.duration == 0.0)
 
-                print(f"🔄 [Quality] Reloading stream to apply HLS variant '{quality}'...")
+                print(f"🔄 [Quality] Reloading proxied stream for HLS variant '{quality}'...")
                 self._play_url(self._last_url)
 
-                # Восстанавливаем позицию для архивов/файлов
                 if not is_live and pos is not None and pos > 0:
                     def restore_position():
                         time.sleep(1.2)
@@ -1750,6 +2077,8 @@ class IPTVCore(QObject):
                         except Exception:
                             pass
                     threading.Thread(target=restore_position, daemon=True).start()
+            else:
+                print(f"📺 [Quality] Direct stream — только vf-масштабирование, без релоада")
         except Exception as e:
             print(f"⚠️ Quality setting error: {e}")
 
@@ -1757,7 +2086,9 @@ class IPTVCore(QObject):
         return quality
 
     def _apply_video_scaling(self, quality):
-        """Масштабирование через vf-фильтр НА ЛЕТУ. Читает исходную высоту из MPV."""
+        """Масштабирование через vf-фильтр. hwdec=auto-copy установлен при
+        инициализации и БОЛЬШЕ НЕ МЕНЯЕТСЯ — меняем только vf.
+        auto-copy = аппаратный декодер + копирование кадра в CPU → vf работает."""
         try:
             original_height = None
             v_params = getattr(self.player, 'video_params', None)
@@ -1769,41 +2100,41 @@ class IPTVCore(QObject):
                     original_height = vo_params.get('h')
 
             if quality == "auto" or not original_height:
-                self.player['hwdec'] = 'auto-safe'
                 self._set_vf("")
-                print(f"🎬 [Quality] Native quality (source: {original_height or 'unknown'}p)")
+                print(f"🎬 [Quality] Native (source: {original_height or 'unknown'}p)")
                 return
 
             target_height = QUALITY_HEIGHTS.get(quality, 720)
             if target_height == original_height:
-                self.player['hwdec'] = 'auto-safe'
                 self._set_vf("")
                 print(f"🎬 [Quality] Native {original_height}p — already at target")
-            elif target_height < original_height:
-                # DOWNSCALE — fast_bilinear на CPU
-                self.player['sws-flags'] = 'fast_bilinear'
-                self.player['hwdec'] = 'no'
-                self._set_vf(f'scale=-2:{target_height}')
-                print(f"🎬 [Quality] Downscaling {original_height}p → {target_height}p (fast_bilinear)")
             else:
-                # UPSCALE — Lanczos (повышение детализации)
-                self.player['sws-flags'] = 'lanczos'
-                self.player['scale'] = 'lanczos'
-                self.player['hwdec'] = 'no'
                 self._set_vf(f'scale=-2:{target_height}')
-                print(f"🎬 [Quality] ⬆️ Upscaling {original_height}p → {target_height}p (Lanczos)")
+                direction = "Downscale" if target_height < original_height else "Upscale"
+                print(f"🎬 [Quality] {direction} {original_height}p → {target_height}p")
         except Exception as e:
             print(f"⚠️ [Quality] scaling error: {e}")
 
     def _set_vf(self, spec):
-        """Безопасно устанавливает vf-фильтр (пробует command, потом свойство)."""
+        """Безопасно устанавливает vf-фильтр. Пробует несколько способов."""
         try:
-            self.player.command('vf', 'set', spec)
+            if not spec:
+                # Очистка всех фильтров
+                self.player.command('vf', 'set', '')
+            else:
+                # set заменяет всю цепочку фильтров
+                self.player.command('vf', 'set', spec)
         except Exception:
             try:
                 self.player['vf'] = spec
             except Exception:
-                pass
+                try:
+                    if spec:
+                        self.player.command('vf', 'add', spec)
+                    else:
+                        self.player.command('vf', 'clr', '')
+                except Exception:
+                    pass
 
     def _apply_runtime_quality_track(self, quality):
         if not self.player or not self._init:
@@ -1919,7 +2250,6 @@ class IPTVCore(QObject):
 
         self._target_code, self._target_name = "ALL", "Глобальный"
         threading.Thread(target=self._detect_country, args=(f_url, category, name), daemon=True).start()
-        threading.Thread(target=self._test_connection_quality, args=(f_url,), daemon=True).start()
 
         try:
             root = self.engine.rootObjects()[0]
@@ -1950,13 +2280,17 @@ class IPTVCore(QObject):
             p['demuxer-readahead-secs'] = CacheConfig.READAHEAD_SECS
             p['demuxer-hysteresis-secs'] = CacheConfig.HYSTERESIS_SECS
             p['network-timeout'] = CacheConfig.NETWORK_TIMEOUT
-            p['live-keepalive'] = 'yes'
+            try: p['live-keepalive'] = 'yes'
+            except Exception: pass
             p['force-seekable'] = 'yes'
 
+            # Применяем качество ЧЕРЕЗ ЗАДЕРЖКУ — когда поток уже открыт и
+            # video_params доступны. Безопасно для прямых Xtream-потоков.
+            stream_optimizer.quality_level = self._current_quality
             try:
-                self.setQuality(self._current_quality)
-            except Exception as q_err:
-                print(f"⚠️ Failed to apply quality on play: {q_err}")
+                QTimer.singleShot(3000, self._safe_apply_quality)
+            except Exception:
+                pass
 
             try:
                 QTimer.singleShot(2500, self._update_available_qualities_from_tracks)
@@ -1967,6 +2301,16 @@ class IPTVCore(QObject):
                   f"hysteresis={CacheConfig.HYSTERESIS_SECS}s); quality/subs/audio — выбор пользователя")
         except Exception as e:
             print(f"[Optimizer] Optimization error: {e}")
+
+    def _safe_apply_quality(self):
+        """Безопасное применение качества через 3с после старта.
+        video_params уже доступны — vf scale сработает корректно."""
+        try:
+            if self.player and self._init and self._current_quality != "auto":
+                self._apply_video_scaling(self._current_quality)
+                print(f"📺 [Quality] Applied {self._current_quality} after stream opened")
+        except Exception as e:
+            print(f"⚠️ [Quality] delayed apply failed: {e}")
 
     def _detect_country(self, url, cat, name):
         code, cn = detect_country(cat, name)
