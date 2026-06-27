@@ -1,0 +1,65 @@
+name: Pure IPTV — compact build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install DEPS — PySide6-Essentials (БЕЗ WebEngine!)
+        run: |
+          pip install nuitka zstandard
+          pip install PySide6-Essentials requests python-mpv
+
+      - name: Nuitka build — LTO + anti-bloat + only needed Qt plugins
+        run: |
+          python -m nuitka `
+            --onefile `
+            --lto=yes `
+            --enable-plugin=pyside6 `
+            --include-qt-plugins=sensible,qml `
+            --windows-console-mode=disable `
+            --include-data-dir=mpv=mpv `
+            --include-data-file=main.qml=main.qml `
+            --noinclude-pytest-mode=nofollow `
+            --noinclude-unittest-mode=nofollow `
+            --noinclude-setuptools-mode=nofollow `
+            --assume-yes-for-downloads `
+            --output-dir=build `
+            main.py
+
+      - name: Find EXE
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse build\*.exe | Select-Object -First 1
+          if (-not $exe) { throw "No EXE found!" }
+          $before = [math]::Round((Get-Item $exe.FullName).Length/1MB, 1)
+          "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "BEFORE UPX: $before MB"
+
+      - name: UPX — сжимаем в 3-4 раза
+        run: |
+          curl -sL https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip -o upx.zip
+          tar -xf upx.zip
+          .\upx-4.2.4-win64\upx.exe --best --lzma "$env:EXE_PATH"
+          $after = [math]::Round((Get-Item "$env:EXE_PATH").Length/1MB, 1)
+          Write-Host "AFTER  UPX: $after MB"
+          Write-Host "ECONOMY: $([math]::Round(($before-$after)/$before*100, 1))%"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PureIPTV
+          path: "$env:EXE_PATH"
