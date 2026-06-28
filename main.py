@@ -3393,3 +3393,5 @@ if __name__ == "__main__":
     engine.rootContext().setContextProperty("backend", core)
     engine.load(os.path.join(os.path.dirname(__file__), "main.qml"))
     sys.exit(app.exec())
+
+# Разрабы — идите нафEE-HEEг. 
