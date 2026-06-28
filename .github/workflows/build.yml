@@ -52,7 +52,7 @@ jobs:
           Write-Host "Folder: $dir"
           Write-Host "Before UPX: $([math]::Round($before/1MB, 1)) MB"
 
-      - name: UPX — НЕ сжимаем VCRUNTIME и MSVCP!
+      - name: UPX — не трогаем VCRUNTIME, MSVCP, Python, Qt/PySide6!
         shell: pwsh
         run: |
           curl -sL https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip -o upx.zip
@@ -61,11 +61,20 @@ jobs:
           
           Get-ChildItem -Path "$env:EXE_DIR" -Include *.dll,*.exe,*.pyd -Recurse | ForEach-Object {
             $name = $_.Name.ToLower()
-            # 🚫 Пропускаем VCRUNTIME, MSVCP, python DLL — UPX их ломает!
+            $folder = $_.Directory.FullName.ToLower()
+            
+            # 🚫 Пропускаем системные DLL
             if ($name -like "vcruntime*" -or $name -like "msvcp*" -or $name -like "python3*") {
               Write-Host "⏭️ SKIP: $($_.Name)"
               return
             }
+            
+            # 🚫 Пропускаем Qt/PySide6 DLL (они ломаются от UPX!)
+            if ($folder -match "pyside6" -or $folder -match "shiboken6") {
+              Write-Host "⏭️ SKIP Qt: $($_.Name)"
+              return
+            }
+            
             Write-Host "📦 UPX: $($_.Name)"
             & $upx --best --lzma $_.FullName --force --no-progress 2>&1 | Out-Null
           }
