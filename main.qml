@@ -3,7 +3,8 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import QtQuick.Dialogs as QtDialogs
-// Аврора? Теперь это Говнора. И да, я вдохновлялся OTT Navigator, TiviMate и IPTVnator.
+
+// Aurora? Теперь это Govnaura. И да, я вдохновлялся OTT Navigator, TiviMate и IPTVnator.
 // =========================================================================
 //  PURE IPTV PLAYER  —  «Говнора» redesign
 //  Премиальный тёмный OTT-интерфейс: глубина, стекло, неон, плавность.
