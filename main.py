@@ -984,7 +984,7 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
                             # БЕЗ байтового dedup'а хвоста — он рвал TS-выравнивание
                             # и сам провоцировал desync. На стыке reopen mpv сам
-                            # разрулит дубли/разрыв через fflags=+genpts+igndts+discardcorrupt.
+                            # разрулит дубли/разрыв через fflags=+discardcorrupt.
                             try:
                                 self.wfile.write(out)
                                 self.wfile.flush()
@@ -1019,6 +1019,7 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
             last_init_map = None
             consecutive_playlist_errors = 0
             consecutive_429 = 0
+            jump_to_edge = False
 
             # Первичный fetch тоже должен переживать 429 (а не падать в 500),
             # иначе mpv сразу получит EOF и устроит reopen.
@@ -1082,26 +1083,38 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                     # надо снова сходить на исходный live URL и получить новый auth m3u8.
                     if ('404' in str(e) or '403' in str(e)) and refresh_from_source_url:
                         try:
+                            # ВАЖНО: refresh_from_source_url — это ВСЕГДА исходный
+                            # стабильный Xtream .m3u8 (…/live/user/pass/id.m3u8).
+                            # Раньше мы перезаписывали его резолвнутым (redirect →
+                            # токенизированным CDN) URL, и когда токен протухал,
+                            # refresh бил по мёртвому токену → снова 404 → сваливались
+                            # на direct TS (отсюда повторы кадров и лаги).
+                            # Теперь всегда идём на исходный URL и получаем СВЕЖИЙ токен.
                             root_text, root_resolved_url = _fetch_text(refresh_from_source_url, timeout=20)
-                            refresh_from_source_url = root_resolved_url
                             if '#EXT-X-STREAM-INF' in root_text:
                                 new_media_url, selected_audio_playlist = _pick_variant(root_text, root_resolved_url)
                             else:
                                 new_media_url = root_resolved_url
-                            if new_media_url != media_playlist_url:
-                                print(f"🔄 [LIVEPIPE] refreshed media playlist URL")
+                            print(f"🔄 [LIVEPIPE] refreshed playlist with fresh token")
                             media_playlist_url = new_media_url
+                            # После refresh прыгаем к свежему live edge: media-sequence
+                            # мог сдвинуться, а старые сегменты уже мертвы. Так избегаем
+                            # повторной 404-серии и «быстрого лага» на каждом обновлении.
+                            jump_to_edge = True
                             hard_fail_count = 0
+                            consecutive_playlist_errors = 0
                             time.sleep(0.2)
                             continue
                         except Exception as refresh_err:
                             print(f"⚠️ [LIVEPIPE] source refresh failed: {refresh_err}")
                             hard_fail_count += 1
-                            if direct_ts_url and hard_fail_count >= 2:
+                            # Уходим на direct TS ТОЛЬКО если исходный Xtream-эндпоинт
+                            # реально недоступен много раз подряд (не из-за токена).
+                            if direct_ts_url and hard_fail_count >= 5:
                                 _stream_direct_ts(direct_ts_url)
                                 return
 
-                    if direct_ts_url and consecutive_playlist_errors >= 8:
+                    if direct_ts_url and consecutive_playlist_errors >= 20:
                         _stream_direct_ts(direct_ts_url)
                         return
 
@@ -1153,11 +1166,24 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                 oldest_seq = segments[0]['seq']
 
                 if last_seq is None:
-                    # Стартуем не в самом хвосте, а с небольшим запасом, чтобы не словить underrun.
+                    # Стартуем с запасом ~4 сегмента (≈12с подушки). Этот forward-буфер
+                    # и есть маскировка лагов: пока mpv играет из него, протухание
+                    # токена / refresh playlist проходят незаметно для глаза.
                     hold_back = max(2, min(4, len(segments) - 1))
                     start_seq = max(oldest_seq, newest_seq - hold_back)
+                    jump_to_edge = False
+                elif jump_to_edge:
+                    # После 403/404 сегмента или refresh: старые (мёртвые) сегменты
+                    # пропускаем и продолжаем со свежего края, но только ВПЕРЁД,
+                    # чтобы не повторять уже показанные кадры.
+                    hold_back = max(2, min(4, len(segments) - 1))
+                    start_seq = max(oldest_seq, newest_seq - hold_back)
+                    if last_seq is not None and start_seq <= last_seq:
+                        start_seq = last_seq + 1
+                    jump_to_edge = False
                 else:
-                    # Если live window уже убежало вперёд, мягко перескакиваем к актуальному окну.
+                    # Если live window убежало вперёд (напр. после долгой паузы) —
+                    # мягко перескакиваем к актуальному окну.
                     if last_seq < oldest_seq - 1:
                         print(f"⚠️ [LIVEPIPE] live window advanced: last_seq={last_seq}, oldest={oldest_seq}; jump to live edge")
                         start_seq = max(oldest_seq, newest_seq - 2)
@@ -1195,8 +1221,10 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                         if seg_resp.status_code != 200:
                             print(f"⚠️ [LIVEPIPE] segment HTTP {seg_resp.status_code}: {seg_url[:120]}")
                             if seg_resp.status_code in (403, 404):
-                                # Токен/окно сегмента успело протухнуть — форсируем немедленный
-                                # refresh playlist, а не пытаемся доедать уже мёртвые URI.
+                                # Токен/окно сегмента протухли. Форсируем refresh playlist
+                                # и после него прыгаем прямо к свежему live edge — иначе
+                                # застрянем, доедая уже мёртвые URI (это и был «быстрый лаг»).
+                                jump_to_edge = True
                                 break
                             continue
                         for chunk in seg_resp.iter_content(chunk_size=65536):
@@ -1804,6 +1832,8 @@ class IPTVCore(QObject):
         self._last_live_reopen_at = 0.0
         self._live_reopen_count = 0
         self._last_avsync_log = 0.0
+        self._last_catchup_check = 0.0
+        self._last_catchup_log = 0.0
 
         # === КОНТЕНТ-МОДЕЛИ: каналы / фильмы / сериалы ===
         self._movies = []
@@ -1857,6 +1887,11 @@ class IPTVCore(QObject):
                 video_sync='audio',
                 audio_samplerate='48000',
                 network_timeout=CacheConfig.NETWORK_TIMEOUT,
+                # cache-pause-wait: сколько ждать наполнения буфера прежде чем
+                # снова стартовать после underrun. Небольшое значение = быстрый
+                # рестарт вместо долгого «зависания» плашки буферизации.
+                cache_pause_wait='1',
+                cache_pause_initial='no',
 
                 # === СТРОГИЙ ЛИМИТ КЭША (ТЗ: 200 МБ / 60 секунд) ===
                 # Единый источник правды — CacheConfig. Больше нигде не переопределяем
@@ -1880,13 +1915,12 @@ class IPTVCore(QObject):
                     'seg_max_retry=3,'
                     'http_persistent=1,'
                     'http_seekable=0,'
-                    # fflags=+genpts чинит «non-monotonous DTS» на сырых склеенных
-                    # TS из Xtream direct .ts: mpv перегенерирует таймстампы вместо
-                    # того чтобы копить AV-desync. discardcorrupt отбрасывает битые
-                    # пакеты на стыках reopen, а не тянет их в декодер.
-                    # (igndts намеренно НЕ включаем глобально — он может слегка
-                    #  влиять на seek у нормального VOD .mp4.)
-                    'fflags=+genpts+discardcorrupt,'
+                    # ВАЖНО: genpts УБРАН. Он перегенерирует ВСЕ таймстампы и ломал
+                    # чистый HLS (давал AV-desync 30с и жёсткие лаги на старте).
+                    # Теперь мы почти всегда на чистом HLS (token refresh), где PTS
+                    # уже правильные. discardcorrupt безопасен — просто отбрасывает
+                    # битые пакеты, не трогая тайминги.
+                    'fflags=+discardcorrupt,'
                     'bufsize=64KiB'
                 ),
                 force_seekable='yes',
@@ -1938,9 +1972,8 @@ class IPTVCore(QObject):
         @p.property_observer('avsync')
         def on_avsync(_n, v):
             # НЕ делаем reopen по AV desync (это вызывало churn/429).
-            # Теперь desync лечится на уровне demuxer (genpts/igndts) + untimed=no,
-            # поэтому он не должен копиться. Логируем максимум раз в 5с, чтобы не
-            # засорять консоль сотнями строк, как было раньше.
+            # На чистом HLS с правильными PTS и untimed=no desync не должен копиться.
+            # Логируем максимум раз в 5с, чтобы не засорять консоль.
             if v is None:
                 return
             av = abs(v)
@@ -1949,7 +1982,7 @@ class IPTVCore(QObject):
             now = time.time()
             if now - getattr(self, '_last_avsync_log', 0.0) >= 5.0:
                 self._last_avsync_log = now
-                print(f"⚠️ AV desync: {v:.2f}s (demuxer genpts/igndts сглаживает)")
+                print(f"⚠️ AV desync: {v:.2f}s")
 
         try:
             @p.property_observer('paused-for-cache')
@@ -1980,6 +2013,31 @@ class IPTVCore(QObject):
                 self.bufferingProgressChanged.emit()
         except Exception as e:
             print(f"⚠️ Failed to observe cache-buffering-state: {e}")
+
+        try:
+            # LIVE latency guard: у сырого TS данные приходят быстрее реального
+            # времени, demuxer-буфер копится → через несколько минут «дикие лаги».
+            # По мануалу mpv для live это лечится сливом буфера / догоном live edge.
+            # Мягкая стратегия: если буфер разросся — чуть ускоряем воспроизведение,
+            # чтобы плавно догнать эфир; при экстремальном разрастании — hard-skip.
+            @p.property_observer('demuxer-cache-duration')
+            def on_cache_duration(_n, v):
+                if v is None:
+                    return
+                if not self._is_live_stream(self._last_url, self._last_start_raw):
+                    return
+                try:
+                    cache_dur = float(v)
+                except Exception:
+                    return
+                now = time.time()
+                # Не дёргаем чаще раза в 2с.
+                if now - getattr(self, '_last_catchup_check', 0.0) < 2.0:
+                    return
+                self._last_catchup_check = now
+                self._gui_call(lambda cd=cache_dur: self._live_latency_guard(cd))
+        except Exception as e:
+            print(f"⚠️ Failed to observe demuxer-cache-duration: {e}")
 
         try:
             @p.property_observer('video-params')
@@ -2078,16 +2136,24 @@ class IPTVCore(QObject):
                 try:
                     self.player['force-seekable'] = 'no'
                     self.player['demuxer-seekable-cache'] = 'no'
-                    # Небольшой cache для live: 0 секунд приводил к underrun на
-                    # сыром TS. 4с дают mpv запас, чтобы держать A/V ровно.
-                    self.player['cache-secs'] = '4'
-                    self.player['demuxer-readahead-secs'] = '4'
+                    # Умеренная forward-подушка ~15с: достаточно чтобы гасить
+                    # хиккапы (протухание токена / refresh / 404), но НЕ гигантская —
+                    # readahead=30+hysteresis=0 заставляли mpv качать 30с ЗАЛПОМ и
+                    # одновременно декодить 1080p → перегрузка и жёсткие лаги старта.
+                    self.player['cache-secs'] = '20'
+                    self.player['demuxer-readahead-secs'] = '15'
                     self.player['demuxer-max-back-bytes'] = '0'
-                    self.player['demuxer-hysteresis-secs'] = '2'
-                    # Гарантируем нормальный тайминг для live (untimed off) и
-                    # мягкую коррекцию A/V вместо накопления desync.
+                    # hysteresis небольшой (3с): докачка плавная, без залпа, но и
+                    # без простоя — буфер держится наполненным.
+                    self.player['demuxer-hysteresis-secs'] = '3'
+                    # cache-pause=no: при опустевшем буфере НЕ вставать на долгую
+                    # паузу-буферизацию, а продолжать с тем, что есть.
+                    self.player['cache-pause'] = 'no'
+                    # Гарантируем нормальный тайминг для live (untimed off).
                     self.player['untimed'] = 'no'
                     self.player['video-sync'] = 'audio'
+                    # Сброс возможного ускорения от прошлого канала.
+                    self.player['speed'] = 1.0
                 except Exception:
                     pass
             else:
@@ -2122,6 +2188,55 @@ class IPTVCore(QObject):
         """Хелпер: запланировать callable на GUI-thread через сигнал."""
         try:
             self.runOnGui.emit(fn)
+        except Exception:
+            pass
+
+    def _live_latency_guard(self, cache_dur):
+        """Держит LIVE у эфира БЕЗ заметных скачков кадра. Вызывается на GUI-thread.
+
+        Стратегия (индустриальный стандарт, как в hls.js/LL-HLS):
+        латенси поджимаем ТОЛЬКО плавным ускорением на 1-5% — глаз этого не видит,
+        картинка непрерывна. drop-buffers (который даёт видимый скачок кадра —
+        «играл кадр, стал другой») применяем лишь как аварийный сброс при огромном
+        отставании, когда плавно догнать уже нереально."""
+        if not (HAS_MPV and self.player and self._init):
+            return
+        try:
+            # ГЛАВНОЕ ПРАВИЛО: подушка ~20с существует, чтобы ГАСИТЬ столлы от
+            # протухания токенов / refresh playlist. Её НЕЛЬЗЯ тратить ускорением —
+            # иначе через пару минут буфер опустеет и начнётся underrun → фризы
+            # (ровно то, что было). Поэтому при буфере до ~30с играем РОВНО 1.0x
+            # и бережём запас. Ускоряемся ЧУТЬ-ЧУТЬ только при реальном избытке
+            # СВЕРХ целевой подушки, чтобы латенси не росла бесконечно.
+            if cache_dur > 55.0:
+                target_speed = 1.04
+            elif cache_dur > 40.0:
+                target_speed = 1.02
+            elif cache_dur > 30.0:
+                target_speed = 1.01
+            else:
+                # Буфер в пределах целевой подушки — НЕ трогаем, копим/держим запас.
+                target_speed = 1.0
+
+            try:
+                cur = float(self.player.speed or 1.0)
+            except Exception:
+                cur = 1.0
+            if abs(cur - target_speed) > 0.003:
+                try:
+                    self.player['speed'] = target_speed
+                except Exception:
+                    pass
+
+            # Аварийный сброс ТОЛЬКО при экстремальном отставании (> 90с): плавным
+            # ускорением такое уже не догнать. Крайне редкий случай.
+            if cache_dur > 90.0:
+                try:
+                    self.player.command('drop-buffers')
+                    self.player['speed'] = 1.0
+                    print(f"⏩ [LIVE] буфер {cache_dur:.1f}s (экстрим) → drop-buffers")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -3208,6 +3323,13 @@ class IPTVCore(QObject):
         self._last_live_reopen_at = 0.0
         self._live_reopen_count = 0
         self._live_rejoin_pending = False
+        self._last_catchup_check = 0.0
+        # Сброс скорости: предыдущий live latency guard мог оставить speed=1.05.
+        if HAS_MPV and self.player and self._init:
+            try:
+                self.player['speed'] = 1.0
+            except Exception:
+                pass
         self._available_qualities = ["auto", "ultra", "high", "medium", "low", "minimal"]
         self.availableQualitiesChanged.emit()
         self._qualities_analyzed = False
@@ -3268,13 +3390,16 @@ class IPTVCore(QObject):
                     p['demuxer-seekable-cache'] = 'no'
                 except Exception:
                     pass
-                # 4с буфера вместо 0 — иначе сырой TS уходит в underrun, а с ним
-                # ползёт AV-desync. С небольшим cache mpv держит A/V ровно.
-                p['cache-secs'] = '4'
+                # Умеренная forward-подушка ~15с: гасит хиккапы (протухание токена /
+                # refresh / 404), но не заставляет mpv качать залпом и захлёбываться
+                # на старте (было readahead=30+hysteresis=0 → жёсткие лаги).
+                p['cache-secs'] = '20'
                 p['demuxer-max-back-bytes'] = '0'
-                p['demuxer-readahead-secs'] = '4'
-                p['demuxer-hysteresis-secs'] = '2'
+                p['demuxer-readahead-secs'] = '15'
+                # hysteresis=3 → плавная докачка без залпа и без простоя.
+                p['demuxer-hysteresis-secs'] = '3'
                 try:
+                    p['cache-pause'] = 'no'
                     p['untimed'] = 'no'
                     p['video-sync'] = 'audio'
                 except Exception:
@@ -3393,5 +3518,3 @@ if __name__ == "__main__":
     engine.rootContext().setContextProperty("backend", core)
     engine.load(os.path.join(os.path.dirname(__file__), "main.qml"))
     sys.exit(app.exec())
-
-# Разрабы — идите нафEE-HEEг. 
