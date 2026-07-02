@@ -1,0 +1,36 @@
+# ============================================================
+#  ULTRA-LOW-LOAD MPV CONFIG — ASM LEVEL OPTIMIZATION
+# ============================================================
+
+# Жесткое ускорение декодирования (минуя копирование в RAM)
+vo=gpu
+gpu-api=d3d11
+hwdec=d3d11va
+d3d11va-zero-copy=yes
+fbo-format=rgba8
+swapchain-depth=1
+
+# Отключаем ВСЕ математические фильтры
+scale=bilinear
+cscale=bilinear
+dscale=bilinear
+dither=no
+correct-downscaling=no
+linear-upscaling=no
+sigmoid-upsscaling=no
+hdr-compute-peak=no
+deband=no
+
+# Минимизируем потоки обработки (меньше контекстных переключений CPU)
+vd-lavc-threads=1
+ad-lavc-threads=1
+audio-buffer=0
+cache=yes
+cache-secs=30
+demuxer-max-bytes=50MiB
+
+# Отключаем отрисовку интерфейса внутри MPV
+osc=no
+osd-bar=no
+osd-font-size=0
+audio-samplerate=44100
