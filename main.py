@@ -14,6 +14,15 @@ except Exception:
 # --- MPV preload ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# ============================================================
+#  HARDWARE OPTIMIZER — Настройка железа на "Ассемблерный" уровень
+# ============================================================
+os.environ["QSG_RENDER_LOOP"] = "basic"
+os.environ["QSG_RHI_BACKEND"] = "d3d11"
+os.environ["QSG_LOW_PRECISION_FLOAT"] = "1"
+os.environ["PYTHONOPTIMIZE"] = "2"
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
 mpv_candidates = [
     os.path.join(script_dir, "MPV"),
     os.path.join(script_dir, "mpv"),
@@ -2186,6 +2195,15 @@ class IPTVCore(QObject):
                 vo='gpu', hwdec='auto-safe', ytdl=False, osc=False,
                 input_default_bindings=False, input_vo_keyboard=True,
 
+                # ASM-LEVEL Оптимизация видео-движка
+                scale='bilinear',
+                cscale='bilinear',
+                dscale='bilinear',
+                dither='no',
+                correct_downscaling='yes',
+                hdr_compute_peak='no',
+                keepaspect='yes',
+                
                 keep_open='yes', keep_open_pause='no', hr_seek='yes',
                 profile='low-latency',
                 # ВАЖНО: untimed='yes' раньше ломал live A/V — он велит mpv
@@ -3488,8 +3506,11 @@ class IPTVCore(QObject):
                 self._set_vf("")
                 print(f"🎬 [Quality] Native {original_height}p — already at target")
             else:
+                # Фикс растягивания: scale=-2:высота заставляет MPV держать пропорции
+                # и гарантирует, что ширина будет четной (нужно для многих кодеков)
                 self._set_vf(f'scale=-2:{target_height}')
                 direction = "Downscale" if target_height < original_height else "Upscale"
+                print(f"🎬 [Quality] {direction} {original_height}p → {target_height}p (Asm-Optimized)")
                 print(f"🎬 [Quality] {direction} {original_height}p → {target_height}p")
         except Exception as e:
             print(f"⚠️ [Quality] scaling error: {e}")
