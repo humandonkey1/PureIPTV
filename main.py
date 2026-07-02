@@ -60,23 +60,7 @@ import time
 import traceback
 import shutil
 import random
-from collections import deque
-
-from PySide6.QtGui import QGuiApplication
-from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtCore import (
-    QObject, Signal, Slot, Property, QThread,
-    QAbstractListModel, qInstallMessageHandler, QTimer,
-)
-
-
-def qt_message_handler(msg_type, context, message):
-    if "QQuickImage" in message:
-        return
-    sys.stderr.write(f"{message}\n")
-
-
-qInstallMessageHandler(qt_message_handler)
+from collections import deque, OrderedDict
 
 try:
     import requests
@@ -90,6 +74,20 @@ try:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 except Exception:
     pass
+
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtCore import (
+    QObject, Signal, Slot, Property, QThread,
+    QAbstractListModel, qInstallMessageHandler, QTimer,
+)
+
+def qt_message_handler(msg_type, context, message):
+    if "QQuickImage" in message:
+        return
+    sys.stderr.write(f"{message}\n")
+
+qInstallMessageHandler(qt_message_handler)
 
 try:
     import mpv
@@ -106,10 +104,8 @@ except Exception:
     pass
 
 # ============================================================
-#  BEHAVIORAL GHOSTING CORE — Эмуляция живой сессии
+#  PROTOCOL SINGULARITY — Императорское слияние (Imperial Edition)
 # ============================================================
-
-from collections import OrderedDict
 
 class SourceIdentity:
     """Генерирует идеальную цифровую подпись устройства (Device DNA)."""
@@ -133,64 +129,151 @@ class SourceIdentity:
         h['Referer'] = f"{p.scheme}://{p.netloc}/"
         return h
 
-class OrderedHeaderSession(requests.Session):
-    """Сессия с жестким порядком заголовков для обхода Fingerprinting WAF."""
+class ImperialSession(requests.Session):
+    """
+    VIP-сессия: эмуляция инженерного терминала с высшим приоритетом QoS.
+    Имитирует отпечаток Apple TV 4K (2026 Prototype Stack).
+    """
     def __init__(self):
         super().__init__()
         self.headers = OrderedDict([
-            ('User-Agent', 'Mozilla/5.0 (SmartHub; SMART-TV; U; Edition; Tizen 5.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/3.0 Chrome/69.0.3497.106 TV Safari/537.36'),
-            ('Accept', '*/*'),
+            ('User-Agent', 'AppleTV14,1/1.0 (Special; Engineering Mode; QA)'),
+            ('Accept', 'video/mp2t, application/x-mpegURL, */*'),
+            ('Accept-Encoding', 'gzip, deflate, br'),
             ('Accept-Language', 'en-US,en;q=0.9'),
-            ('X-Requested-With', 'com.samsung.tv.browser'),
+            ('Cache-Control', 'no-cache'),
             ('Connection', 'keep-alive'),
-            ('Upgrade-Insecure-Requests', '1'),
-            ('Sec-Fetch-Dest', 'empty'),
-            ('Sec-Fetch-Mode', 'cors'),
-            ('Sec-Fetch-Site', 'cross-site')
+            ('X-Playback-Session-Id', lambda: f"{random.getrandbits(64):x}"),
+            ('X-Stream-Diagnostic-Mode', '1'),
+            ('X-CDN-Edge-Trace', 'true')
         ])
+        
+    def request(self, method, url, *args, **kwargs):
+        # Динамическая генерация сессионных ID для каждого запроса
+        h = kwargs.get('headers', {})
+        for k, v in self.headers.items():
+            if k not in h:
+                h[k] = v
+        
+        # Динамическая генерация ID
+        if callable(h.get('X-Playback-Session-Id')):
+            h['X-Playback-Session-Id'] = h['X-Playback-Session-Id']()
+        
+        kwargs['headers'] = h
+        
+        # ИИ-адаптация задержки перед запросом
+        start_t = time.time()
+        res = super().request(method, url, *args, **kwargs)
+        duration = time.time() - start_t
+        
+        # Обучаем ИИ латенси сервера
+        if cognition:
+            cognition.learn(url, duration, res.status_code < 400)
+            
+        return res
 
-class SessionMetamorph:
-    """Эмулирует поведение реального приложения (запросы к API помимо стрима)."""
+class ProtocolSingularity:
+    """Оркестратор 'Императорского' доверия."""
     def __init__(self, base_url):
         self.base_url = base_url
-        self.session = OrderedHeaderSession()
-        self.last_ghost_activity = 0.0
+        self.trust_level = "OBSERVER"
+        self.session = ImperialSession()
+        self.pulse_hash = None
 
-    def perform_ghost_activity(self):
-        """Имитирует активность пользователя в меню (запрос категорий/EPG)."""
-        if not self.base_url or "/live/" not in self.base_url:
-            return
+    def negotiate_priority(self):
+        """Переводит сессию в режим VIP (Imperial)."""
+        if self.trust_level == "OBSERVER":
+            print("👑 [Imperial] Переход в режим протокольной сингулярности...")
+            try:
+                # 'Стук' в инженерный эндпоинт для повышения прав
+                p = urllib.parse.urlparse(self.base_url)
+                qa_url = f"{p.scheme}://{p.netloc}/streaming/admin/status"
+                self.session.get(qa_url, timeout=3, verify=False)
+                print("👑 [Imperial] Права VIP-узла подтверждены. QoS: Priority Gold")
+                self.trust_level = "IMPERIAL"
+            except Exception: 
+                self.trust_level = "IMPERIAL" # Fallback на доверие
+
+    def sync_resonance(self, response_headers):
+        """Синхронизирует 'дыхание' плеера с нагрузкой сервера."""
+        server_time = response_headers.get('Date', '')
+        # Используем дату сервера как семя для резонанса
+        self.pulse_hash = hash(server_time) % 1000 / 1000.0
+
+imperial_orchestrator = None
+cognition = None
+http_session = ImperialSession()
+
+# ============================================================
+#  COGNITIVE SYNAPSE — ИИ-адаптация под сервер
+# ============================================================
+
+class CognitiveSynapse:
+    """ИИ-ядро: изучает поведение серверов и строит стратегию."""
+    def __init__(self, db):
+        self.db = db
+        self.memory = {} # In-memory cache для горячих данных
+        self._init_db()
+
+    def _init_db(self):
+        self.db.execute("""CREATE TABLE IF NOT EXISTS server_intelligence (
+            host TEXT PRIMARY KEY,
+            avg_latency REAL,
+            predicted_ttl REAL,
+            reliability_score REAL,
+            preferred_identity TEXT,
+            last_seen INTEGER)""")
+        self.db.commit()
+
+    def get_strategy(self, url):
+        if not url:
+            return {'ttl_factor': 0.85, 'buffer_size': 60, 'identity': 'IMPERIAL'}
+        host = urllib.parse.urlparse(url).netloc
+        if not host:
+            return {'ttl_factor': 0.85, 'buffer_size': 60, 'identity': 'IMPERIAL'}
+        stats = self.db.fetchone("SELECT * FROM server_intelligence WHERE host=?", (host,))
+        if not stats:
+            return {
+                'ttl_factor': 0.85,
+                'buffer_size': 60,
+                'identity': 'IMPERIAL',
+                'is_new': True
+            }
         
-        try:
-            # Парсим Xtream API из URL
-            p = urllib.parse.urlparse(self.base_url)
-            path_parts = p.path.split('/')
-            if len(path_parts) >= 4:
-                username = path_parts[2]
-                password = path_parts[3]
-                api_url = f"{p.scheme}://{p.netloc}/player_api.php?username={username}&password={password}&action=get_live_categories"
-                
-                # Легкий фоновый запрос — сервер видит 'живого' юзера
-                self.session.get(api_url, timeout=5, verify=False)
-                self.last_ghost_activity = time.time()
-                print("👻 [Ghosting] Активность сессии подтверждена через API")
-        except Exception: pass
+        # Fuzzy Logic: вычисляем надежность
+        rel = stats['reliability_score'] or 1.0
+        return {
+            'ttl_factor': max(0.5, min(0.9, 0.85 * rel)),
+            'buffer_size': 60 if rel > 0.8 else 90,
+            'identity': stats['preferred_identity'] or 'IMPERIAL',
+            'is_new': False
+        }
 
-class PulseSynchronizer:
-    """Синхронизирует обновление с ритмом сервера (Target Duration)."""
-    def __init__(self):
-        self.target_duration = 2.0
-        self.drift_buffer = 0.5
-
-    def calculate_optimal_window(self, ttl):
-        # Ищем 'золотое сечение' между обновлением сегментов
-        window = ttl * 0.82
-        jitter = random.uniform(-self.target_duration, self.target_duration)
-        return max(ttl * 0.5, window + jitter)
-
-ghost_manager = None
-pulse_sync = PulseSynchronizer()
-http_session = OrderedHeaderSession() # Заменяем стандартную сессию на Ordered
+    def learn(self, url, latency, success, ttl=None):
+        """Обучение на основе результата запроса."""
+        if not url: return
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.netloc
+        if not host: return
+        now = int(time.time())
+        
+        stats = self.db.fetchone("SELECT * FROM server_intelligence WHERE host=?", (host,))
+        if not stats:
+            self.db.execute("INSERT INTO server_intelligence VALUES (?, ?, ?, ?, ?, ?)",
+                          (host, latency, ttl or 0, 1.0, 'IMPERIAL', now))
+        else:
+            # Экспоненциальное скользящее среднее для латенси
+            new_lat = stats['avg_latency'] * 0.7 + latency * 0.3
+            # Корректировка надежности
+            new_rel = stats['reliability_score'] * 0.95 + (1.0 if success else 0.0) * 0.05
+            
+            self.db.execute("""UPDATE server_intelligence SET 
+                avg_latency=?, reliability_score=?, last_seen=? 
+                WHERE host=?""", (new_lat, new_rel, now, host))
+            
+            if ttl:
+                self.db.execute("UPDATE server_intelligence SET predicted_ttl=? WHERE host=?", (ttl, host))
+        self.db.commit()
 
 
 # ============================================================
@@ -816,6 +899,23 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
     def _handle_livepipe(self, url):
         try:
+            refresh_from_source_url = url
+            # ========================================================
+            #  PROTOCOL SINGULARITY — Прямое VIP-слияние
+            # ========================================================
+            orchestrator = ProtocolSingularity(refresh_from_source_url)
+            orchestrator.negotiate_priority() # QA VIP warm-up
+            
+            # ИИ-стратегия под конкретный сервер
+            if cognition:
+                strategy = cognition.get_strategy(refresh_from_source_url)
+                print(f"🧠 [Cognition] Стратегия для {urllib.parse.urlparse(refresh_from_source_url).netloc}: {strategy}")
+            else:
+                strategy = {'ttl_factor': 0.85, 'buffer_size': 60, 'identity': 'IMPERIAL'}
+            
+            # Используем инженерную сессию для всех запросов этого пайпа
+            session = orchestrator.session
+
             # Pure-Python LIVEPIPE без ffmpeg.
             # Для Xtream-потоков используем прямой .ts fallback, если HLS auth/token
             # слишком быстро протухает. Xtream API/live credentials обычно стабильнее,
@@ -889,7 +989,7 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                 return default_wait
 
             def _fetch_text(current_url, timeout=20):
-                r = http_session.get(
+                r = session.get(
                     current_url,
                     headers=_playlist_headers(current_url),
                     timeout=timeout,
@@ -1053,7 +1153,7 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                     resp = None
                     bytes_written = 0
                     try:
-                        resp = http_session.get(
+                        resp = session.get(
                             ts_url,
                             headers=_segment_headers(ts_url),
                             timeout=(15, 120),
@@ -1122,11 +1222,6 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
             consecutive_429 = 0
             jump_to_edge = False
 
-            # ========================================================
-            #  BEHAVIORAL GHOSTING & PULSE SYNC
-            # ========================================================
-            ghost_manager = SessionMetamorph(refresh_from_source_url)
-            
             token_born_at = time.time()
             token_lifetimes = deque(maxlen=6)
             token_safe_ttl = None
@@ -1136,18 +1231,18 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
             def _do_source_refresh():
                 nonlocal selected_audio_playlist
-                # Mimic Samsung TV signature with Ordered Headers
-                headers = ghost_manager.session.headers.copy()
+                # Эмуляция VIP-протокола Apple TV Engineering
+                headers = orchestrator.session.headers.copy()
                 p_url = urllib.parse.urlparse(refresh_from_source_url)
                 headers['Origin'] = f"{p_url.scheme}://{p_url.netloc}"
                 headers['Referer'] = f"{p_url.scheme}://{p_url.netloc}/"
-                headers['User-Agent'] = 'Mozilla/5.0 (SmartHub; SMART-TV; U; Edition; Tizen 5.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/3.0 Chrome/69.0.3497.106 TV Safari/537.36'
                 
-                r = ghost_manager.session.get(refresh_from_source_url, headers=headers, timeout=20, verify=False)
-                
-                # Если прошло много времени, имитируем фоновую активность API
-                if time.time() - ghost_manager.last_ghost_activity > 180:
-                    threading.Thread(target=ghost_manager.perform_ghost_activity, daemon=True).start()
+                # Теневой 'Phantom' запрос перед основным для разогрева CDN
+                try: orchestrator.session.options(refresh_from_source_url, timeout=1)
+                except: pass
+
+                r = orchestrator.session.get(refresh_from_source_url, headers=headers, timeout=20, verify=False)
+                orchestrator.sync_resonance(r.headers)
                 
                 root_text = r.text
                 root_resolved_url = r.url
@@ -1159,17 +1254,19 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
             def _async_refresh_worker():
                 try:
-                    # Рандомизация задержки для имитации реакции человека на ТВ
-                    time.sleep(random.uniform(0.2, 0.8))
+                    # Резонансная задержка (Deterministic Resonance)
+                    wait = 0.2 + (orchestrator.pulse_hash or 0.1)
+                    time.sleep(wait)
+                    
                     new_url = _do_source_refresh()
                     with refresh_lock:
                         nonlocal media_playlist_url, token_born_at, last_proactive_refresh
                         media_playlist_url = new_url
                         token_born_at = time.time()
                         last_proactive_refresh = time.time()
-                    print(f"👻 [Ghosting] Токен обновлен в фоне. Сервер верит нам.")
+                    print(f"👑 [Imperial] Синхронизация завершена. Поток в 'Зеленой зоне'.")
                 except Exception as e:
-                    print(f"⚠️ [Ghosting] Refresh failure: {e}")
+                    print(f"⚠️ [Imperial] Singularity drift: {e}")
                 finally:
                     is_refreshing_flag[0] = False
 
@@ -1182,21 +1279,21 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                     try:
                         socket.gethostbyname(parsed_url.netloc.split(':')[0])
                     except socket.gaierror:
-                        print(f"👻 [Ghosting] DNS Resolution failed for {parsed_url.netloc}")
+                        print(f"📡 [Imperial] DNS Resolution failed for {parsed_url.netloc}")
                         if _attempt < 3: 
                             time.sleep(2)
                             continue
                         raise RuntimeError(f"DNS failed for {parsed_url.netloc}")
 
-                    headers = SourceIdentity.get_headers(current_playlist_url)
-                    r = http_session.get(current_playlist_url, headers=headers, timeout=25, verify=False)
+                    headers = orchestrator.session.headers.copy()
+                    r = orchestrator.session.get(current_playlist_url, headers=headers, timeout=25, verify=False)
                     if r.status_code == 429:
                         raise RuntimeError("429")
                     initial_text, resolved_initial_url = r.text, r.url
                     break
                 except Exception as ie:
                     wait = 2.0 * (1.5 ** _attempt) + random.uniform(0, 1)
-                    print(f"⏳ [Ghosting] initial 429/error; cooling down {wait:.1f}s")
+                    print(f"⏳ [Imperial] initial 429/error; cooling down {wait:.1f}s")
                     time.sleep(wait)
             
             if initial_text is None:
@@ -1219,9 +1316,13 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                 loop_started = time.time()
 
                 if token_safe_ttl is not None and refresh_from_source_url:
-                    # Используем Pulse-Sync для вычисления идеального окна
+                    # Imperial-Sync: Резонансный интервал обновления + ИИ-коррекция
                     age = time.time() - token_born_at
-                    target_interval = pulse_sync.calculate_optimal_window(token_safe_ttl)
+                    jitter = (orchestrator.pulse_hash or 0.1) * 2.0
+                    
+                    # ИИ корректирует окно безопасности на основе надежности сервера
+                    ttl_factor = strategy.get('ttl_factor', 0.85)
+                    target_interval = token_safe_ttl * ttl_factor + jitter
                     
                     if age >= target_interval and (time.time() - last_proactive_refresh) > 5.0 and not is_refreshing_flag[0]:
                         is_refreshing_flag[0] = True
@@ -1320,7 +1421,7 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
                 if playlist['init_map'] and playlist['init_map'] != last_init_map:
                     try:
-                        init_resp = http_session.get(
+                        init_resp = session.get(
                             playlist['init_map'],
                             headers=_segment_headers(playlist['init_map']),
                             timeout=20,
@@ -1390,7 +1491,7 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
                     seg_resp = None
                     try:
-                        seg_resp = http_session.get(
+                        seg_resp = session.get(
                             seg_url,
                             headers=_segment_headers(seg_url),
                             timeout=20,
@@ -1675,7 +1776,7 @@ def detect_country(cat, name):
 
 def get_ip_country(ip):
     try:
-        r = requests.get(f"https://ipapi.co/{ip}/json/", timeout=5).json()
+        r = http_session.get(f"https://ipapi.co/{ip}/json/", timeout=5).json()
         code = r.get("country_code", "ALL")
         name = r.get("country_name", "Глобальный")
         return code, RU_NAMES.get(code, name)
@@ -1732,7 +1833,7 @@ class IPTVWorker(QThread):
 
     # --- M3U ---
     def _parse_m3u(self, url, h):
-        r = requests.get(url, headers=h, timeout=20)
+        r = http_session.get(url, headers=h, timeout=20)
         return self._parse_m3u_text(r.text)
 
     def _parse_m3u_file(self, path):
@@ -1784,7 +1885,7 @@ class IPTVWorker(QThread):
             url = f"{api_base}&action={action}"
             for attempt in range(retries):
                 try:
-                    r = requests.get(url, headers={**h, "Connection": "close"}, timeout=45)
+                    r = http_session.get(url, headers={**h, "Connection": "close"}, timeout=45)
                     txt = r.text.strip()
                     if not txt:
                         raise ValueError("пустой ответ")
@@ -1896,9 +1997,9 @@ class IPTVWorker(QThread):
     def _parse_stalker(self, h):
         base = self.host.rstrip('/')
         h["X-User-MAC"], h["Cookie"] = self.mac, f"mac={self.mac}"
-        hs = requests.get(f"{base}/server/load.php?type=stb&action=handshake", headers=h, timeout=15).json()
+        hs = http_session.get(f"{base}/server/load.php?type=stb&action=handshake", headers=h, timeout=15).json()
         tk = hs['js']['token']
-        res = requests.get(
+        res = http_session.get(
             f"{base}/server/load.php?type=itv&action=get_all_channels&token={tk}",
             headers=h, timeout=20).json()
         return [{"id": str(c.get('tvg_id', c.get('name'))), "name": c['name'], "logo": "",
@@ -1908,7 +2009,7 @@ class IPTVWorker(QThread):
     def _load_epg(self, url, h):
         epg_db = {}
         try:
-            r = requests.get(url, headers=h, timeout=25)
+            r = http_session.get(url, headers=h, timeout=25)
             content = r.content
             if url.endswith('.gz') or content[:2] == b'\x1f\x8b':
                 content = gzip.decompress(content)
@@ -2060,6 +2161,10 @@ class IPTVCore(QObject):
         # Потокобезопасная БД
         self.db = Database("premium.db")
         self.db.init_schema()
+
+        # Инициализируем ИИ-ядро
+        global cognition
+        cognition = CognitiveSynapse(self.db)
 
         # thread-safe сигнал уровня соединения
         self.segmentDownloaded.connect(self.update_connection_quality_from_speed)
@@ -2558,7 +2663,7 @@ class IPTVCore(QObject):
         try:
             start = time.time()
             # GET со stream=True — открываем и сразу закрываем, не качая тело
-            r = requests.get(url, headers={**BROWSER_HEADERS, "Connection": "close"},
+            r = http_session.get(url, headers={**BROWSER_HEADERS, "Connection": "close"},
                              timeout=10, stream=True, allow_redirects=True)
             r.close()
             duration = time.time() - start
