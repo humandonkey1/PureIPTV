@@ -318,7 +318,8 @@ ApplicationWindow {
                             model: [
                                 { k: backend.playlists.length, v: "Плейлистов" },
                                 { k: "4K", v: "Качество" },
-                                { k: "MPV", v: "Движок" }
+                                { k: "MPV", v: "Движок" },
+                                { k: "🔮", v: "PhaseShift™ NEXUS" }
                             ]
                             RowLayout {
                                 spacing: 8
@@ -1512,6 +1513,56 @@ ApplicationWindow {
                             MenuItem { text: "ℹ️ Кэш: 60 с / 200 МБ"; enabled: false }
                         }
                     }
+
+                    // === PHASESHIFT™ — индикатор сдвига фазы протокола ===
+                    Rectangle {
+                        visible: backend.phaseShiftActive || psTooltip.text.length > 0
+                        width: psRow.implicitWidth + 28; height: 38; radius: 11
+                        color: backend.phaseShiftActive
+                             ? Qt.rgba(0.145, 0.902, 0.643, 0.22)
+                             : Qt.rgba(1, 1, 1, 0.06)
+                        border.color: backend.phaseShiftActive ? c_accent : Qt.rgba(1, 1, 1, 0.14)
+                        border.width: backend.phaseShiftActive ? 1.5 : 1
+
+                        // Пульсация при активном PhaseShift
+                        Rectangle {
+                            anchors.fill: parent; anchors.margins: -5; radius: 16
+                            color: c_accent; opacity: 0
+                            visible: backend.phaseShiftActive
+                            SequentialAnimation on opacity {
+                                loops: Animation.Infinite; running: backend.phaseShiftActive
+                                NumberAnimation { to: 0.25; duration: 700 }
+                                NumberAnimation { to: 0.0; duration: 700 }
+                            }
+                        }
+
+                        RowLayout {
+                            id: psRow; anchors.centerIn: parent; spacing: 6
+                            Label {
+                                text: "🔮"
+                                font.pixelSize: 14
+                                SequentialAnimation on opacity {
+                                    loops: Animation.Infinite; running: backend.phaseShiftActive
+                                    NumberAnimation { to: 0.4; duration: 600 }
+                                    NumberAnimation { to: 1.0; duration: 600 }
+                                }
+                            }
+                            Label {
+                                id: psTooltip
+                                text: backend.phaseShiftStatus
+                                color: backend.phaseShiftActive ? c_accent : c_text2
+                                font.bold: backend.phaseShiftActive
+                                font.pixelSize: fsSub - 1
+                                elide: Text.ElideRight
+                                Layout.maximumWidth: 220 * scaleFactor
+                            }
+                        }
+
+                        ToolTip.visible: psMa.containsMouse && backend.phaseShiftStatus.length > 0
+                        ToolTip.text: "PhaseShift™ NEXUS — 24 стратегии обхода.\nБазовый → Ultra → OMEGA → ABYSS → VOID → NEXUS.\nIP Adjacency, Cert Transparency, Protocol Upgrade.\n" + backend.phaseShiftStatus
+                        ToolTip.delay: 400
+                        MouseArea { id: psMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor }
+                    }
                 }
             }
 
@@ -1561,6 +1612,20 @@ ApplicationWindow {
                             RowLayout { id: bufRow; anchors.centerIn: parent; spacing: 5
                                 Label { text: "📡 БУФЕР"; color: "#A5F3D0"; font.bold: true; font.pixelSize: 9 }
                                 Label { text: backend.bufferingProgress + "%"; color: "white"; font.bold: true; font.pixelSize: 10 } } }
+                        // === PHASESHIFT: значок активного обхода ===
+                        Rectangle {
+                            visible: backend.phaseShiftActive
+                            height: 18; radius: 5; width: psBadgeRow.implicitWidth + 18
+                            color: Qt.rgba(0.145, 0.902, 0.643, 0.35)
+                            border.color: c_accent; border.width: 1
+                            SequentialAnimation on opacity { loops: Animation.Infinite; running: backend.phaseShiftActive
+                                NumberAnimation { to: 0.5; duration: 700 }
+                                NumberAnimation { to: 1.0; duration: 700 } }
+                            RowLayout { id: psBadgeRow; anchors.centerIn: parent; spacing: 4
+                                Label { text: "🔮"; font.pixelSize: 9 }
+                                Label { text: "NEXUS"; color: "#00ff88"; font.bold: true; font.pixelSize: 9; font.letterSpacing: 0.5 }
+                            }
+                        }
                         // программа по центру
                         Label {
                             text: window.selCh ? backend.getCurrentEPG(window.selCh.id) : "Программа недоступна"
