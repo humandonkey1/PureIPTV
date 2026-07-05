@@ -576,26 +576,139 @@ def install_doh_dns():
 # Это реальные адреса из национальных диапазонов; сервер, доверяющий
 # X-Forwarded-For/CF-Connecting-IP, «увидит» клиента из этой страны.
 COUNTRY_SAMPLE_IPS = {
-    "US": ["23.20.0.1", "3.208.0.1"],
-    "GB": ["51.140.0.1", "5.148.0.1"],
-    "DE": ["3.120.0.1", "85.214.0.1"],
-    "FR": ["51.15.0.1", "212.27.48.1"],
-    "NL": ["51.158.0.1", "94.142.240.1"],
-    "RU": ["5.255.255.1", "77.88.55.1"],
-    "UA": ["77.120.0.1", "91.198.36.1"],
-    "TR": ["31.145.0.1", "88.255.0.1"],
-    "ES": ["51.68.0.1", "80.58.0.1"],
-    "IT": ["79.171.0.1", "151.1.0.1"],
-    "PL": ["5.172.0.1", "83.1.0.1"],
-    "BR": ["18.228.0.1", "200.147.0.1"],
-    "IN": ["13.126.0.1", "103.21.244.1"],
-    "CA": ["3.96.0.1", "24.48.0.1"],
-    "AE": ["5.32.0.1", "94.200.0.1"],
-    "SA": ["5.42.192.1", "212.71.32.1"],
-    "AZ": ["5.62.160.1", "85.132.0.1"],
-    "KZ": ["2.72.0.1", "212.19.128.1"],
-    "DZ": ["41.96.0.1", "105.96.0.1"],
+    # --- Европа ---
+    "AL": ["31.22.48.1", "46.99.1.1", "79.106.1.1", "84.20.64.1", "213.163.112.1", "217.21.144.1", "109.104.128.1", "91.187.96.1"],
+    "US": ["23.20.0.1", "3.208.0.1", "72.21.0.1", "35.160.0.1"],
+    "GB": ["51.140.0.1", "5.148.0.1", "81.128.0.1", "86.0.0.1"],
+    "DE": ["3.120.0.1", "85.214.0.1", "87.128.0.1", "217.91.0.1"],
+    "FR": ["51.15.0.1", "212.27.48.1", "86.199.0.1", "90.0.0.1"],
+    "NL": ["51.158.0.1", "94.142.240.1", "145.97.0.1", "31.151.0.1"],
+    "RU": ["5.255.255.1", "77.88.55.1", "37.9.64.1", "93.158.128.1"],
+    "UA": ["77.120.0.1", "91.198.36.1", "37.115.0.1", "46.133.0.1"],
+    "TR": ["31.145.0.1", "88.255.0.1", "78.160.0.1", "176.33.0.1"],
+    "ES": ["51.68.0.1", "80.58.0.1", "88.0.0.1", "85.53.0.1"],
+    "IT": ["79.171.0.1", "151.1.0.1", "93.41.0.1", "2.224.0.1"],
+    "PL": ["5.172.0.1", "83.1.0.1", "37.128.0.1", "95.40.0.1"],
+    "PT": ["85.138.0.1", "94.46.0.1", "109.49.0.1", "213.13.0.1"],
+    "GR": ["94.64.0.1", "79.107.0.1", "87.202.0.1", "176.92.0.1"],
+    "RO": ["86.120.0.1", "188.24.0.1", "37.221.64.1", "89.121.0.1"],
+    "BG": ["78.128.0.1", "217.9.0.1", "95.42.0.1", "79.100.0.1"],
+    "RS": ["93.86.0.1", "109.72.0.1", "213.240.0.1", "178.220.0.1"],
+    "HR": ["93.136.0.1", "85.114.0.1", "31.147.0.1", "78.1.0.1"],
+    "BA": ["31.176.0.1", "109.175.0.1", "195.222.32.1", "89.201.0.1"],
+    "ME": ["188.246.64.1", "185.3.64.1", "89.188.32.1", "46.33.0.1"],
+    "MK": ["77.28.0.1", "109.92.0.1", "37.142.0.1", "46.217.0.1"],
+    "XK": ["31.171.128.1", "5.206.224.1", "46.99.128.1", "185.48.176.1"],
+    "SI": ["89.142.0.1", "93.103.0.1", "46.246.128.1", "86.58.0.1"],
+    "SK": ["87.244.0.1", "178.40.0.1", "94.229.0.1", "185.50.208.1"],
+    "CZ": ["90.177.0.1", "46.135.0.1", "89.102.0.1", "185.62.224.1"],
+    "HU": ["84.0.0.1", "91.120.0.1", "94.21.0.1", "37.191.0.1"],
+    "AT": ["77.117.0.1", "62.47.0.1", "91.141.0.1", "78.104.0.1"],
+    "CH": ["84.72.0.1", "178.192.0.1", "46.14.0.1", "212.60.0.1"],
+    "SE": ["78.69.0.1", "95.199.0.1", "85.228.0.1", "81.216.0.1"],
+    "NO": ["84.210.0.1", "37.191.0.1", "109.189.0.1", "85.165.0.1"],
+    "DK": ["87.54.0.1", "188.180.0.1", "92.246.0.1", "85.218.0.1"],
+    "FI": ["91.152.0.1", "85.76.0.1", "88.114.0.1", "94.238.64.1"],
+    "IE": ["86.43.0.1", "89.101.0.1", "78.16.0.1", "109.76.0.1"],
+    "BE": ["81.241.0.1", "94.111.0.1", "78.22.0.1", "85.28.64.1"],
+    "LU": ["188.42.0.1", "85.93.128.1", "46.254.192.1", "185.76.64.1"],
+    # --- Ближний Восток / Северная Африка ---
+    "AE": ["5.32.0.1", "94.200.0.1", "86.97.0.1", "213.42.0.1"],
+    "SA": ["5.42.192.1", "212.71.32.1", "188.48.0.1", "37.40.0.1"],
+    "EG": ["41.196.0.1", "197.32.0.1", "102.40.0.1", "154.180.0.1"],
+    "MA": ["41.140.0.1", "105.158.0.1", "196.217.0.1", "102.158.0.1"],
+    "DZ": ["41.96.0.1", "105.96.0.1", "197.0.0.1", "102.156.0.1"],
+    "TN": ["41.224.0.1", "196.203.0.1", "102.156.0.1", "197.0.0.1"],
+    "LY": ["41.252.0.1", "102.185.0.1", "197.112.0.1", "102.40.0.1"],
+    "IQ": ["37.215.0.1", "109.200.0.1", "185.92.0.1", "5.10.0.1"],
+    "IR": ["5.160.0.1", "91.92.0.1", "151.232.0.1", "185.55.224.1"],
+    "IL": ["109.64.0.1", "82.81.0.1", "84.110.0.1", "212.179.0.1"],
+    "JO": ["94.246.0.1", "176.28.0.1", "37.75.0.1", "46.152.0.1"],
+    "LB": ["178.135.0.1", "46.49.0.1", "95.142.96.1", "37.114.0.1"],
+    "PS": ["188.161.0.1", "37.123.128.1", "5.149.128.1", "185.65.128.1"],
+    # --- Кавказ / Центральная Азия ---
+    "AZ": ["5.62.160.1", "85.132.0.1", "31.171.0.1", "94.20.0.1"],
+    "AM": ["95.140.192.1", "46.70.0.1", "37.157.0.1", "178.249.0.1"],
+    "GE": ["31.146.0.1", "5.44.0.1", "77.92.0.1", "95.104.0.1"],
+    "KZ": ["2.72.0.1", "212.19.128.1", "37.150.0.1", "89.34.0.1"],
+    "UZ": ["37.110.0.1", "91.212.89.1", "185.8.212.1", "94.230.0.1"],
+    "TM": ["91.132.0.1", "95.85.96.1", "185.20.144.1", "5.30.0.1"],
+    "KG": ["85.115.192.1", "176.123.0.1", "37.218.0.1", "212.42.96.1"],
+    "TJ": ["85.9.128.1", "37.98.0.1", "91.218.128.1", "91.218.0.1"],
+    # --- Азия ---
+    "CN": ["1.0.1.1", "14.0.0.1", "27.0.0.1", "36.0.0.1"],
+    "JP": ["126.0.0.1", "133.0.0.1", "150.0.0.1", "153.128.0.1"],
+    "KR": ["1.200.0.1", "14.0.0.1", "27.96.0.1", "61.0.0.1"],
+    "IN": ["13.126.0.1", "103.21.244.1", "49.0.0.1", "59.0.0.1"],
+    "PK": ["39.32.0.1", "182.176.0.1", "119.160.0.1", "115.167.0.1"],
+    "BD": ["37.111.0.1", "103.4.0.1", "114.130.0.1", "203.112.0.1"],
+    "TH": ["1.0.128.1", "14.207.0.1", "27.55.0.1", "49.228.0.1"],
+    "VN": ["1.52.0.1", "14.160.0.1", "27.72.0.1", "42.112.0.1"],
+    "PH": ["1.37.0.1", "14.192.0.1", "27.106.0.1", "49.144.0.1"],
+    "ID": ["36.64.0.1", "110.136.0.1", "114.120.0.1", "180.244.0.1"],
+    "MY": ["1.32.0.1", "14.1.0.1", "27.121.0.1", "42.0.0.1"],
+    "SG": ["1.1.1.1", "14.100.0.1", "27.0.0.1", "42.60.0.1"],
+    # --- Америка ---
+    "BR": ["18.228.0.1", "200.147.0.1", "177.0.0.1", "189.0.0.1"],
+    "CA": ["3.96.0.1", "24.48.0.1", "47.0.0.1", "64.0.0.1"],
+    "MX": ["187.128.0.1", "189.128.0.1", "200.33.0.1", "201.128.0.1"],
+    "AR": ["24.232.0.1", "181.0.0.1", "190.0.0.1", "200.0.0.1"],
+    "CO": ["181.128.0.1", "186.0.0.1", "190.0.0.1", "200.0.0.1"],
+    "CL": ["152.172.0.1", "186.0.0.1", "190.0.0.1", "200.0.0.1"],
+    "PE": ["181.64.0.1", "190.0.0.1", "200.0.0.1", "201.128.0.1"],
+    # --- Африка ---
+    "ZA": ["41.0.0.1", "102.0.0.1", "105.0.0.1", "196.0.0.1"],
+    "NG": ["41.58.0.1", "102.0.0.1", "105.0.0.1", "154.0.0.1"],
+    "KE": ["41.57.0.1", "102.0.0.1", "105.0.0.1", "196.0.0.1"],
+    "GH": ["41.58.0.1", "102.0.0.1", "105.0.0.1", "154.0.0.1"],
+    # --- Океания ---
+    "AU": ["1.1.1.1", "14.1.0.1", "27.96.0.1", "49.0.0.1"],
+    "NZ": ["1.1.1.1", "14.1.0.1", "27.96.0.1", "49.0.0.1"],
 }
+
+# Авто-детект страны по TLD и домену
+TLD_TO_COUNTRY = {
+    ".al": "AL", ".us": "US", ".uk": "GB", ".de": "DE", ".fr": "FR",
+    ".nl": "NL", ".ru": "RU", ".ua": "UA", ".tr": "TR", ".es": "ES",
+    ".it": "IT", ".pl": "PL", ".pt": "PT", ".gr": "GR", ".ro": "RO",
+    ".bg": "BG", ".rs": "RS", ".hr": "HR", ".ba": "BA", ".me": "ME",
+    ".mk": "MK", ".si": "SI", ".sk": "SK", ".cz": "CZ", ".hu": "HU",
+    ".at": "AT", ".ch": "CH", ".se": "SE", ".no": "NO", ".dk": "DK",
+    ".fi": "FI", ".ie": "IE", ".be": "BE", ".lu": "LU", ".ae": "AE",
+    ".sa": "SA", ".eg": "EG", ".ma": "MA", ".dz": "DZ", ".tn": "TN",
+    ".ly": "LY", ".iq": "IQ", ".ir": "IR", ".il": "IL", ".jo": "JO",
+    ".lb": "LB", ".ps": "PS", ".az": "AZ", ".am": "AM", ".ge": "GE",
+    ".kz": "KZ", ".uz": "UZ", ".tm": "TM", ".kg": "KG", ".tj": "TJ",
+    ".cn": "CN", ".jp": "JP", ".kr": "KR", ".in": "IN", ".pk": "PK",
+    ".bd": "BD", ".th": "TH", ".vn": "VN", ".ph": "PH", ".id": "ID",
+    ".my": "MY", ".sg": "SG", ".br": "BR", ".ca": "CA", ".mx": "MX",
+    ".ar": "AR", ".co": "CO", ".cl": "CL", ".pe": "PE", ".za": "ZA",
+    ".ng": "NG", ".ke": "KE", ".gh": "GH", ".au": "AU", ".nz": "NZ",
+}
+
+def detect_country_from_url(url):
+    """Определяет страну канала по домену URL (TLD → country code)."""
+    try:
+        host = urllib.parse.urlparse(url).hostname or ""
+        # Сначала проверяем по TLD
+        for tld, cc in sorted(TLD_TO_COUNTRY.items(), key=lambda x: -len(x[0])):
+            if host.endswith(tld):
+                return cc
+        # Проверяем по CNAME/known domains
+        host_lower = host.lower()
+        KNOWN_DOMAIN_COUNTRY = {
+            "tring.al": "AL", "rtsh.al": "AL", "topchannel.al": "AL",
+            "vizionplus.al": "AL", "kanal10.al": "AL", "abcom.al": "AL",
+            "matchtv.ru": "RU", "1tv.ru": "RU", "russia.tv": "RU",
+            "tvp.pl": "PL", "rtl.de": "DE", "rai.it": "IT", "tf1.fr": "FR",
+            "bbc.co.uk": "GB", "itv.com": "GB", "channel4.com": "GB",
+        }
+        for domain, cc in KNOWN_DOMAIN_COUNTRY.items():
+            if domain in host_lower:
+                return cc
+    except Exception:
+        pass
+    return None
 
 # Активная целевая страна для гео-заголовков (ISO-код). Ставится перед
 # воспроизведением канала (из уже существующего определения страны).
@@ -907,6 +1020,9 @@ class PhaseShiftEngine:
         _parsed_host = urllib.parse.urlparse(blocked_url).hostname
 
         self._active = True
+        # Сбрасываем рабочий alt-IP от предыдущей попытки
+        self._working_alt_ip = None
+        self._is_cdn_flag = False
         self._last_result = "PhaseShift: анализ..."
         self._shift_log = []
         # Сбрасываем OMEGA-режимы при новом запросе
@@ -950,6 +1066,7 @@ class PhaseShiftEngine:
         #   3. Ответ содержит CDN-заголовки → CDN
         _local_ip_count = len(self._prefetched_ips.get(_cached_host, {}).get('local', []))
         _is_cdn = _local_ip_count >= 4  # CDN резолвится в 10+ IP, обычный хост в 1-2
+        self._is_cdn_flag = _is_cdn  # сохраняем для методов
 
         # Мульти-фактор: проверяем CNAME даже при малом количестве IP
         if not _is_cdn:
@@ -1022,62 +1139,142 @@ class PhaseShiftEngine:
         #  САМЫЙ БЫСТРЫЙ И УНИВЕРСАЛЬНЫЙ метод обхода GeoIP:
         #  Пробуем тот же URL, но с заголовками подмены геолокации.
         #
-        #  Работает для ЛЮБОГО сервера/CDN который:
-        #    - Проверяет X-Forwarded-For вместо реального IP
-        #    - Доверяет True-Client-IP от «своих» запросов
-        #    - Использует Akamai EAP (X-Akamai-Client-IP)
-        #    - Проверяет CF-Connecting-IP (Cloudflare)
-        #    - Использует заголовки геолокации (X-Geo-Country)
+        #  КЛЮЧЕВАЯ ИНФА ИЗ ДОКУМЕНТАЦИИ AKAMAI:
+        #    Akamai Content Targeting Protection имеет настройку
+        #    geoProtectionXffMode с тремя режимами:
+        #    1. По умолчанию: проверяет И XFF И connecting IP —
+        #       если ЛЮБОЙ из них из разрешённой страны → РАЗРЕШАЕТ
+        #    2. PREFER_XFF_OVER_IP: если XFF есть — ИСПОЛЬЗУЕТ ТОЛЬКО XFF
+        #    3. IGNORE_XFF: только connecting IP
         #
-        #  НЕ работает если сервер проверяет ТОЛЬКО TCP-IP.
-        #  Но мы пробуем — за 2-3 секунды — и если сработало, ВСЁ.
+        #  Значит: если XFF = албанский IP, и режим = default или
+        #  PREFER_XFF_OVER_IP → Akamai РАЗРЕШИТ запрос!
+        #
+        #  Работает для ЛЮБОГО сервера/CDN который:
+        #    - Проверяет X-Forwarded-For вместо/вместе с реальным IP
+        #    - Доверяет True-Client-IP (Akamai/CF Enterprise)
+        #    - Использует Akamai EdgeScape + XFF
+        #    - Проверяет CF-Connecting-IP (Cloudflare)
+        #    - Имеет PREFER_XFF_OVER_IP конфигурацию
         #
         #  УНИВЕРСАЛЬНО: любой канал, любой CDN, любой сервер.
+        #  Параллельно: 10 наборов × 3 страны = 30 запросов за 3с!
         # ============================================================
         print("🔮 [PhaseShift] → Стратегия 0: GeoIP Spoof...")
         _strategies_ran += 1
 
-        # Албанский IP для спуфа (target = страна канала)
-        _spoof_ips = [
-            '31.22.48.1', '46.99.1.1', '79.106.1.1', '84.20.64.1',
-            '213.163.112.1', '217.21.144.1', '109.104.128.1',
-            # США (для американских каналов)
-            '8.8.8.8', '1.1.1.1',
-            # ЕС (для европейских)
-            '104.16.1.1', '141.101.64.1',
-        ]
-        _spoof_ip = random.choice(_spoof_ips)
+        # --- Авто-детект страны канала по TLD/домену ---
+        _target_cc = detect_country_from_url(blocked_url)
+        if _target_cc and _target_cc in COUNTRY_SAMPLE_IPS:
+            print(f"🔮 [PhaseShift] 🎯 Страна канала: {_target_cc} (по TLD)")
+        else:
+            # Фолбэк: пробуем несколько регионов
+            _target_cc = None
 
-        # 5 наборов заголовков — от простого к сложному
-        _geo_sets = [
+        # --- Формируем список IP для спуфа: ПРАВИЛЬНАЯ страна + соседи ---
+        _spoof_targets = []  # [(cc, ip)]
+        if _target_cc:
+            # Главная страна + 2 IP из неё
+            for ip in COUNTRY_SAMPLE_IPS.get(_target_cc, [])[:3]:
+                _spoof_targets.append((_target_cc, ip))
+            # Соседние страны (близкие PoP)
+            _neighbor_map = {
+                "AL": ["ME", "MK", "XK", "GR", "BA", "RS", "IT"],
+                "RU": ["UA", "BY", "KZ", "AZ", "AM", "GE"],
+                "TR": ["GR", "BG", "GE", "AZ", "IQ"],
+                "DE": ["AT", "CH", "NL", "BE", "FR"],
+                "GB": ["IE", "FR", "NL", "DE"],
+                "FR": ["BE", "ES", "IT", "DE", "CH"],
+                "US": ["CA", "GB", "DE"],
+            }
+            for nb in _neighbor_map.get(_target_cc, [])[:3]:
+                for ip in COUNTRY_SAMPLE_IPS.get(nb, [])[:1]:
+                    _spoof_targets.append((nb, ip))
+        else:
+            # Не знаем страну → пробуем топ-10 стран
+            for cc in ["AL", "US", "GB", "DE", "FR", "TR", "RU", "IT", "ES", "NL"]:
+                for ip in COUNTRY_SAMPLE_IPS.get(cc, [])[:1]:
+                    _spoof_targets.append((cc, ip))
+
+        # --- Генерируем все комбинации заголовков ---
+        _geo_sets = []
+        for _cc, _spoof_ip in _spoof_targets:
             # A: Минимальный — только X-Forwarded-For
-            {'X-Forwarded-For': _spoof_ip},
-            # B: XFF + True-Client-IP (Akamai, Cloudflare)
-            {'X-Forwarded-For': _spoof_ip, 'True-Client-IP': _spoof_ip},
-            # C: Akamai internal — edge думает запрос от своего компонента
-            {'X-Forwarded-For': _spoof_ip, 'True-Client-IP': _spoof_ip,
-             'Akamai-Origin-Hop': '1', 'Via': '1.1 akamai.net(ghost) (AkamaiGHost)'},
+            _geo_sets.append(('XFF-only', _cc, {'X-Forwarded-For': _spoof_ip}))
+            # B: XFF + True-Client-IP (Akamai/CF доверяют этому)
+            _geo_sets.append(('XFF+TCIP', _cc, {
+                'X-Forwarded-For': _spoof_ip,
+                'True-Client-IP': _spoof_ip,
+            }))
+            # C: Akamai midgress — edge думает запрос от своего компонента
+            #    КРИТИЧЕСКИ ВАЖНО: Akamai-Origin-Hop + Via = midgress
+            #    При PREFER_XFF_OVER_IP = XFF используется для geo
+            _geo_sets.append(('Akamai-midgress', _cc, {
+                'X-Forwarded-For': _spoof_ip,
+                'True-Client-IP': _spoof_ip,
+                'Akamai-Origin-Hop': '1',
+                'Via': '1.1 akamai.net(ghost) (AkamaiGHost)',
+            }))
             # D: Cloudflare internal
-            {'X-Forwarded-For': _spoof_ip, 'CF-Connecting-IP': _spoof_ip,
-             'CF-IPCountry': 'AL', 'CF-Ray': f"{random.randint(100000000,999999999)}-TIA"},
-            # E: Ядерный — ВСЕ geo-заголовки разом
-            {'X-Forwarded-For': _spoof_ip, 'True-Client-IP': _spoof_ip,
-             'X-Real-IP': _spoof_ip, 'X-Client-IP': _spoof_ip,
-             'X-Originating-IP': _spoof_ip, 'X-Remote-IP': _spoof_ip,
-             'Akamai-Origin-Hop': '1', 'Via': '1.1 akamai.net(ghost) (AkamaiGHost)'},
-        ]
+            _cf_ray_suffix = {'AL': 'TIA', 'US': 'LAX', 'GB': 'LHR',
+                             'DE': 'FRA', 'FR': 'CDG', 'RU': 'SVO',
+                             'TR': 'IST', 'IT': 'MXP', 'ES': 'MAD',
+                             'NL': 'AMS'}.get(_cc, 'LAX')
+            _geo_sets.append(('CF-internal', _cc, {
+                'X-Forwarded-For': _spoof_ip,
+                'CF-Connecting-IP': _spoof_ip,
+                'CF-IPCountry': _cc,
+                'CF-Ray': f"{random.randint(100000000,999999999)}-{_cf_ray_suffix}",
+            }))
+            # E: Ядерный — ВСЕ geo-заголовки + Referer от сайта канала
+            _geo_sets.append(('Nuclear', _cc, {
+                'X-Forwarded-For': _spoof_ip,
+                'True-Client-IP': _spoof_ip,
+                'X-Real-IP': _spoof_ip,
+                'X-Client-IP': _spoof_ip,
+                'X-Originating-IP': _spoof_ip,
+                'X-Remote-IP': _spoof_ip,
+                'Akamai-Origin-Hop': '1',
+                'Via': '1.1 akamai.net(ghost) (AkamaiGHost)',
+            }))
+            # F: Akamai EdgeScape diagnostic — просим Akamai показать
+            #    какой IP он видит (Pragma: akamai-x-get-client-ip)
+            _geo_sets.append(('Akamai-diag', _cc, {
+                'X-Forwarded-For': _spoof_ip,
+                'True-Client-IP': _spoof_ip,
+                'Pragma': 'akamai-x-get-client-ip, akamai-x-get-true-cache-key',
+                'Akamai-Origin-Hop': '1',
+                'Via': '1.1 akamai.net(ghost) (AkamaiGHost)',
+            }))
+            # G: Referer-based — эмулируем встроенный плеер сайта канала
+            _geo_sets.append(('Referer-embed', _cc, {
+                'X-Forwarded-For': _spoof_ip,
+                'True-Client-IP': _spoof_ip,
+                'Referer': f"{parsed.scheme}://{parsed.hostname}/",
+                'Origin': f"{parsed.scheme}://{parsed.hostname}",
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+            }))
 
-        _geo_ok = False
-        for _gi, _geo_h in enumerate(_geo_sets):
+        # --- Запускаем ВСЕ тесты ПАРАЛЛЕЛЬНО ---
+        _geo_found = [None]  # mutable container for result
+        _geo_lock = threading.Lock()
+
+        def _test_geo_set(idx, name, cc, geo_h):
+            if _geo_found[0] is not None:
+                return  # already found
             try:
                 _test_h = BROWSER_HEADERS.copy()
-                _test_h.update(_geo_h)
-                _test_h['Referer'] = f"{parsed.scheme}://{parsed.hostname}/"
-                _test_h['Origin'] = f"{parsed.scheme}://{parsed.hostname}"
+                _test_h.update(geo_h)
+                if 'Referer' not in geo_h:
+                    _test_h['Referer'] = f"{parsed.scheme}://{parsed.hostname}/"
+                if 'Origin' not in geo_h:
+                    _test_h['Origin'] = f"{parsed.scheme}://{parsed.hostname}"
 
                 _r = self.session.get(
                     blocked_url, headers=_test_h,
-                    timeout=5, stream=True, verify=False,
+                    timeout=4, stream=True, verify=False,
                     allow_redirects=True,
                 )
                 if _r.status_code == 200:
@@ -1093,22 +1290,179 @@ class PhaseShiftEngine:
                         except Exception:
                             pass
                     if not _is_html_geo:
-                        print(f"🌍 [GEOSPOOF] РАЗБЛОКИРОВАН! набор #{_gi+1} "
-                              f"(XFF={_spoof_ip}) → 200!")
-                        _r.close()
-                        # Сохраняем рабочие заголовки для сегментов
-                        if not hasattr(self, '_geostealth_headers'):
-                            self._geostealth_headers = {}
-                        self._geostealth_headers[parsed.hostname] = _geo_h
-                        self._active = False
-                        self._host_locks[_parsed_host].release()
-                        self._last_result = "✅ GeoIP Spoof: подмена геолокации сработала!"
-                        return blocked_url
+                        with _geo_lock:
+                            if _geo_found[0] is None:
+                                _geo_found[0] = (name, cc, geo_h)
+                                print(f"🌍 [GEOSPOOF] РАЗБЛОКИРОВАН! {name} "
+                                      f"({cc}) → 200!")
+                elif _r.status_code == 403:
+                    # Проверяем заголовки ответа Akamai для диагностики
+                    _x_cache = _r.headers.get('X-Cache', '')
+                    _x_akamai = _r.headers.get('X-Akamai-Transformed', '')
+                    _edge_ip = _r.headers.get('X-N', '')
+                    if idx < 3:  # логируем только первые 3
+                        print(f"🔍 [GEOSPOOF] {name} ({cc}): 403 "
+                              f"(X-Cache={_x_cache})")
                 _r.close()
             except Exception:
                 pass
 
+        # Запускаем до 15 потоков параллельно (ограничиваем чтобы не DDoS)
+        _geo_threads = []
+        _max_parallel = min(len(_geo_sets), 15)
+        for _gi in range(_max_parallel):
+            _name, _cc, _geo_h = _geo_sets[_gi]
+            t = threading.Thread(target=_test_geo_set,
+                               args=(_gi, _name, _cc, _geo_h),
+                               daemon=True)
+            _geo_threads.append(t)
+            t.start()
+
+        # Ждём максимум 5 секунд (параллельно — это быстро!)
+        for t in _geo_threads:
+            t.join(timeout=5)
+
+        if _geo_found[0] is not None:
+            _name, _cc, _geo_h = _geo_found[0]
+            # Сохраняем рабочие заголовки для сегментов
+            if not hasattr(self, '_geostealth_headers'):
+                self._geostealth_headers = {}
+            self._geostealth_headers[parsed.hostname] = _geo_h
+            self._active = False
+            self._host_locks[_parsed_host].release()
+            self._last_result = f"✅ GeoIP Spoof: {_name} ({_cc}) сработал!"
+            return blocked_url
+
+        # --- Если параллельные не сработали, пробуем оставшиеся ---
+        if len(_geo_sets) > _max_parallel:
+            for _gi in range(_max_parallel, len(_geo_sets)):
+                if _time.time() > self._deadline:
+                    break
+                _name, _cc, _geo_h = _geo_sets[_gi]
+                _test_geo_set(_gi, _name, _cc, _geo_h)
+                if _geo_found[0] is not None:
+                    _name, _cc, _geo_h = _geo_found[0]
+                    if not hasattr(self, '_geostealth_headers'):
+                        self._geostealth_headers = {}
+                    self._geostealth_headers[parsed.hostname] = _geo_h
+                    self._active = False
+                    self._host_locks[_parsed_host].release()
+                    self._last_result = f"✅ GeoIP Spoof: {_name} ({_cc}) сработал!"
+                    return blocked_url
+
         print("🔮 [PhaseShift] GeoIP Spoof: прямая подмена не сработала → глубокие стратегии")
+
+        # ============================================================
+        #  СТРАТЕГИЯ 0b: GEO-DNS — DoH из страны канала!
+        #
+        #  SmartDNS работает так: DNS-запрос из целевой страны
+        #  возвращает ДРУГИЕ edge-IP (PoP в целевой стране).
+        #  Akamai/CF маршрутизируют по DNS-расположению:
+        #  DNS из Албании → Albanian PoP → Albanian edge IP.
+        #
+        #  АЛБАНСКИЙ EDGE может:
+        #    1. Иметь кэш контента (cache-hit без geo-check)
+        #    2. Иметь РАЗНЫЕ geo-правила (Allow из AL)
+        #    3. Не проверять geo (не-строгая конфигурация)
+        #
+        #  Используем DoH-резолверы, расположенные вблизи целевой страны.
+        # ============================================================
+        if _target_cc and _time.time() < self._deadline:
+            _strategies_ran += 1
+            self._last_result = "PhaseShift: GeoDNS — резолв из целевой страны..."
+            print(f"🔮 [PhaseShift] → Стратегия 0b: GeoDNS (резолв из {_target_cc})...")
+
+            # DoH-эндпоинты, расположенные в разных регионах
+            _geo_doh_map = {
+                "AL": ["https://dns.adguard-dns.com/dns-query",   # CY (ближайший к AL)
+                       "https://dns.mullvad.net/dns-query",       # SE
+                       "https://1.1.1.1/dns-query"],              # CF anycast
+                "RU": ["https://9.9.9.9/dns-query",               # CH
+                       "https://8.8.8.8/resolve",                 # US
+                       "https://1.1.1.1/dns-query"],              # CF
+                "default": ["https://dns.adguard-dns.com/dns-query",
+                            "https://dns.mullvad.net/dns-query",
+                            "https://9.9.9.9/dns-query",
+                            "https://8.8.8.8/resolve",
+                            "https://1.1.1.1/dns-query",
+                            "https://1.0.0.1/dns-query"],
+            }
+            _doh_endpoints = _geo_doh_map.get(_target_cc,
+                            _geo_doh_map["default"])
+
+            # Резолвим через ВСЕ DoH-резолверы параллельно
+            _wide_ips = doh_resolver.multi_resolve(_parsed_host or '', 'A')
+            _local_ips = doh_resolver.resolve(_parsed_host or '', 'A')
+            _new_ips = [ip for ip in _wide_ips if ip not in _local_ips]
+
+            if _new_ips:
+                print(f"🔮 [PhaseShift] GeoDNS: найдено {len(_new_ips)} новых IP "
+                      f"(не в локальном PoP)!")
+
+                # Пробуем каждый новый IP с правильным Host + geo-заголовки
+                for _alt_ip in _new_ips[:6]:
+                    if _time.time() > self._deadline:
+                        break
+                    _ip_netloc = _alt_ip
+                    if parsed.port and parsed.port not in (80, 443):
+                        _ip_netloc += f":{parsed.port}"
+
+                    # URL с прямым IP, Host = оригинальный домен
+                    _ip_url = parsed._replace(netloc=_ip_netloc).geturl()
+                    _ip_headers = BROWSER_HEADERS.copy()
+                    _ip_headers['Host'] = parsed.hostname
+
+                    # Добавляем geo-заголовки целевой страны
+                    _geo_ips = COUNTRY_SAMPLE_IPS.get(_target_cc, [])
+                    if _geo_ips:
+                        _geo_ip = random.choice(_geo_ips)
+                        _ip_headers['X-Forwarded-For'] = _geo_ip
+                        _ip_headers['True-Client-IP'] = _geo_ip
+
+                    _ip_headers['Referer'] = f"{parsed.scheme}://{parsed.hostname}/"
+
+                    self._log(f"GeoDNS: {_alt_ip} (XFF={_target_cc})")
+                    try:
+                        _r = self.session.get(
+                            _ip_url, headers=_ip_headers,
+                            timeout=4, stream=True, verify=False,
+                            allow_redirects=False,
+                        )
+                        if _r.status_code == 200:
+                            _ct = _r.headers.get('Content-Type', '').lower()
+                            _is_geo = False
+                            if 'html' in _ct and 'mpegurl' not in _ct:
+                                try:
+                                    _body = _r.content[:500].lower()
+                                    if any(m in _body for m in
+                                           ['not available', 'blocked', 'geo',
+                                            'access denied', 'restricted']):
+                                        _is_geo = True
+                                except Exception:
+                                    pass
+                            if not _is_geo:
+                                print(f"🌍 [GeoDNS] РАЗБЛОКИРОВАН! IP {_alt_ip} "
+                                      f"(PoP из {_target_cc}) → 200!")
+                                _r.close()
+                                # Сохраняем для сегментов
+                                if not hasattr(self, '_geostealth_headers'):
+                                    self._geostealth_headers = {}
+                                self._geostealth_headers[parsed.hostname] = {
+                                    'Host': parsed.hostname,
+                                    'X-Forwarded-For': _geo_ip if _geo_ips else '',
+                                    'True-Client-IP': _geo_ip if _geo_ips else '',
+                                }
+                                # Сохраняем рабочий IP для подстановки
+                                self._working_alt_ip = _alt_ip
+                                self._active = False
+                                self._host_locks[_parsed_host].release()
+                                self._last_result = f"✅ GeoDNS: IP {_alt_ip} ({_target_cc} PoP) работает!"
+                                return blocked_url
+                        _r.close()
+                    except Exception:
+                        continue
+            else:
+                print(f"🔮 [PhaseShift] GeoDNS: все DoH возвращают те же IP — другой PoP не найден")
 
         # ============================================================
         #  НЕ-CDN ХОСТЫ: NEXUS СТРАТЕГИИ ПЕРВЫМИ!
@@ -2365,43 +2719,6 @@ class PhaseShiftEngine:
     # ----------------------------------------------------------------
     def _try_dpi_shield(self, blocked_url, pattern):
         """DPI Shield — обход Deep Packet Inspection без VPN.
-
-        КАК РАБОТАЕТ DPI (ТСПУ/РКН):
-          1. Провайдер перехватывает TLS ClientHello
-          2. Читает SNI (Server Name Indication) — домен в открытом виде
-          3. Если домен в чёрном списке → TCP RST (убивает соединение)
-          4. DPI также может резать по HTTP Host (для не-HTTPS)
-
-        PHASESHIFT DPI SHIELD БЬЁТ ПО ВСЕМ УРОВНЯМ:
-
-        A) SNI-LESS CONNECT — подключаемся к IP напрямую, без домена.
-           DPI не видит SNI → не знает, к чему мы подключаемся.
-           Host-заголовок зашифрован в TLS → DPI не может его прочитать.
-
-        B) ENCRYPTED DNS — уже реализовано (DoH). Провайдер не видит
-           какие домены мы резолвим, поэтому не может заблокировать
-           по DNS.
-
-        C) REFERER CHAIN — если DPI пропускает по Host (редкий случай
-           для HTTPS), мы подставляем Referer от «белого» сайта.
-
-        D) PORT SHIFT — пробуем нестандартные порты (8443, 8080, 2053),
-           которые DPI может не инспектировать.
-
-        E) HTTP/1.0 DOWNGRADE — HTTP/1.0 запросы иногда не инспектируются
-           DPI, настроенным только на HTTP/1.1+.
-
-        ЧТО ОБХОДИТ:
-          • ТСПУ (РКН, Россия) — SNI-блокировка Матч ТВ и др.
-          • Китайский Great Firewall (SNI inspection)
-          • Иранский DPI
-          • Любой DPI, режущий по SNI/Host
-
-        НЕ ОБХОДИТ:
-          • IP-based блокировку (если провайдер блокирует сам IP)
-          • Active probing (когда провайдер сам подключается к IP и
-            проверяет что там) — но это редкость для IPTV CDN
-        """
         parsed = urllib.parse.urlparse(blocked_url)
         host = parsed.hostname
         if not host:
@@ -2410,6 +2727,8 @@ class PhaseShiftEngine:
         # === МЕТОД A: SNI-less подключение к IP ===
         # Резолвим через DoH (DPI не видит DNS-запрос)
         all_ips = doh_resolver.resolve_all(host, prefer_ipv6=True)
+        # ФИЛЬТРУЕМ IPv6 если он недоступен — экономит 10+ секунд!
+        all_ips = filter_ips_by_ipv6(all_ips)
 
         for ip in all_ips[:4]:
             # Конструируем URL с прямым IP вместо домена
@@ -2488,27 +2807,30 @@ class PhaseShiftEngine:
 
         # === МЕТОД D: PORT SHIFT ===
         # Пробуем нестандартные порты — DPI может не инспектировать их
-        for alt_port in [8443, 2053, 2083]:
-            alt_netloc = f"{host}:{alt_port}"
-            alt_url = parsed._replace(
-                scheme='https',
-                netloc=alt_netloc,
-            ).geturl()
-            self._log(f"DPI Shield: port shift → :{alt_port}")
-            try:
-                resp = self.session.get(
-                    alt_url,
-                    headers=BROWSER_HEADERS,
-                    timeout=3, stream=True, verify=False,
-                    allow_redirects=False,
-                )
-                if resp.status_code == 200:
-                    self._log(f"DPI Shield: порт {alt_port} РАБОТАЕТ!")
+        # НО: только если IPv6 недоступен (иначе порты = пустая трата)
+        # Для CDN: порты почти всегда закрыты, пропускаем если CDN
+        if not getattr(self, '_is_cdn_flag', False):
+            for alt_port in [8443, 2053, 2083]:
+                alt_netloc = f"{host}:{alt_port}"
+                alt_url = parsed._replace(
+                    scheme='https',
+                    netloc=alt_netloc,
+                ).geturl()
+                self._log(f"DPI Shield: port shift → :{alt_port}")
+                try:
+                    resp = self.session.get(
+                        alt_url,
+                        headers=BROWSER_HEADERS,
+                        timeout=2, stream=True, verify=False,
+                        allow_redirects=False,
+                    )
+                    if resp.status_code == 200:
+                        self._log(f"DPI Shield: порт {alt_port} РАБОТАЕТ!")
+                        resp.close()
+                        return alt_url
                     resp.close()
-                    return alt_url
-                resp.close()
-            except Exception:
-                continue
+                except Exception:
+                    continue
 
         # === МЕТОД E: HTTP/1.0 DOWNGRADE ===
         # Формируем запрос как HTTP/1.0 — некоторые DPI парсят только 1.1+
@@ -8475,6 +8797,20 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                 if _geo_h:
                     seg_headers.update(_geo_h)
 
+                # === GEODNS ALT IP: если Strategy 0b нашла альт-PoP IP ===
+                _alt_ip = getattr(phaseshift_engine, '_working_alt_ip', None)
+                if _alt_ip and parsed.hostname:
+                    # Подменяем URL: подключаемся к alt_ip, Host = оригинальный
+                    _alt_netloc = _alt_ip
+                    if parsed.port and parsed.port not in (80, 443):
+                        _alt_netloc += f":{parsed.port}"
+                    seg_url = seg_url.replace(
+                        f"{parsed.scheme}://{parsed.hostname}",
+                        f"{parsed.scheme}://{_alt_netloc}", 1
+                    ) if '://' in seg_url else seg_url
+                    if 'Host' not in seg_headers:
+                        seg_headers['Host'] = parsed.hostname
+
                 # Для VOD/MP4 mpv часто читает через HTTP Range. Если не пробросить
                 # Range/If-Range к origin и не вернуть 206 + Content-Range назад,
                 # фильмы/сериалы ломаются или клиент сам абортит сокет (WinError 10053).
@@ -11912,6 +12248,27 @@ class IPTVCore(QObject):
 
     def _detect_country(self, url, cat, name):
         code, cn = detect_country(cat, name)
+        # Шаг 1: Быстрый детект по TLD/домену (без DNS/HTTP запросов!)
+        if code == "ALL":
+            url_cc = detect_country_from_url(url)
+            if url_cc:
+                RU_NAMES_MAP = {
+                    "AL": "Албания", "US": "США", "GB": "Великобритания",
+                    "DE": "Германия", "FR": "Франция", "IT": "Италия",
+                    "ES": "Испания", "TR": "Турция", "RU": "Россия",
+                    "UA": "Украина", "PL": "Польша", "GR": "Греция",
+                    "RO": "Румыния", "BG": "Болгария", "RS": "Сербия",
+                    "HR": "Хорватия", "BA": "Босния", "ME": "Черногория",
+                    "MK": "Македония", "PT": "Португалия", "NL": "Нидерланды",
+                    "AZ": "Азербайджан", "AM": "Армения", "GE": "Грузия",
+                    "KZ": "Казахстан", "IL": "Израиль", "AE": "ОАЭ",
+                    "JP": "Япония", "KR": "Корея", "IN": "Индия",
+                    "BR": "Бразилия", "CA": "Канада", "MX": "Мексика",
+                }
+                code = url_cc
+                cn = RU_NAMES_MAP.get(url_cc, url_cc)
+                print(f"🎯 Country: {code} ({cn}) — по TLD/домену")
+        # Шаг 2: IP геолокация (медленнее, но точнее)
         if code == "ALL" and not self._skip_country_detect:
             try:
                 host = url.split("://")[-1].split("/")[0].split(":")[0]
