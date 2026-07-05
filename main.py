@@ -113,158 +113,638 @@ except Exception:
     pass
 
 # ============================================================
-#  EXTREME PROTOCOL FUSION — Уровень: АБСОЛЮТ (HDSS + TIO + SSF)
+#  ОБХОД БЛОКИРОВОК — что здесь реально работает, а что нет
 # ============================================================
+#
+# Честно о границах возможного (это не пессимизм, это TCP/IP):
+#   * Спрятать свой реальный IP от сервера БЕЗ перенаправления трафика
+#     (VPN/прокси/туннель) невозможно в принципе — серверу нужен обратный
+#     адрес, чтобы прислать ответ. Никакой набор заголовков этого не меняет.
+#   * Поэтому "обход гео-блокировки, которая режет по IP на самом сервере",
+#     без прокси не решается. Точка.
+#
+# Что ДЕЙСТВИТЕЛЬНО поддаётся обходу на стороне клиента (и реализовано ниже):
+#   1. DNS-блокировка провайдера — самый частый способ "заблокировать канал".
+#      Провайдер отдаёт ложный/пустой ответ DNS. Обходится DNS-over-HTTPS:
+#      имя резолвится напрямую через 1.1.1.1 / 8.8.8.8 по HTTPS в обход
+#      резолвера провайдера (DohResolver + install_doh_dns).
+#   2. Origin-серверы, которые доверяют заголовкам X-Forwarded-For / X-Real-IP
+#      (типичная НЕПРАВИЛЬНАЯ конфигурация панелей IPTV). Там подмена
+#      клиентского IP реально пропускает запрос. На корректно настроенных
+#      серверах это игнорируется — вреда нет, но и чуда не будет.
+#   3. Фильтрация по User-Agent / Referer / отсутствию заголовков плеера —
+#      обходится реалистичными заголовками устройства.
+#   4. Нестабильные серверы, 403/429/таймауты — умные ретраи с backoff и
+#      сменой User-Agent, плюс уже существующий fallback на прямой .ts.
 
-class ExtremeProtocol:
-    """Генератор сигнатур 'Абсолют': IRLI + HDSS + TIO + SSF + AGR."""
-    
-    @classmethod
-    def get_trusted_ip(cls):
-        subnets = ['172.217.', '185.60.', '31.13.', '104.244.', '178.176.', '200.147.']
-        base = random.choice(subnets)
-        return f"{base}{random.randint(1,254)}.{random.randint(1,254)}"
 
-    @classmethod
-    def get_absolute_signatures(cls, url=None):
-        """Генерирует маску 'Зеркальное Доверие' (Universal Bypass)."""
-        url_str = str(url or '')
-        parsed = urllib.parse.urlparse(url_str)
-        target_host = parsed.netloc if parsed.netloc else "cdn.global"
-        target_ip = ""
-        try: 
-            target_ip = socket.gethostbyname(target_host.split(':')[0])
-        except: 
-            target_ip = cls.get_trusted_ip()
-        
-        trusted_ip = cls.get_trusted_ip()
+# --- Реалистичные наборы User-Agent для перебора при отказе ---
+CLIENT_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "VLC/3.0.20 LibVLC/3.0.20",
+    "Lavf/60.16.100",
+    "AppleCoreMedia/1.0.0.21G93 (Apple TV; U; CPU OS 17_6 like Mac OS X)",
+    "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) SamsungBrowser/4.0 TV Safari/537.36",
+]
 
-        # Генерируем уникальные облачные ID (BNM)
-        aws_id = f"Root=1-{random.getrandbits(32):x}-{random.getrandbits(96):x}"
-        gcp_id = f"{random.getrandbits(128):032x}/0;o=1"
 
-        return {
-            # --- IRLI: Infrastructure Reflection ---
-            'X-Forwarded-For': f"127.0.0.1, {target_ip}, {trusted_ip}",
-            'X-Real-IP': '127.0.0.1',
-            'X-Client-IP': '127.0.0.1',
-            'True-Client-IP': '127.0.0.1',
-            'X-Remote-Addr': '127.0.0.1',
-            
-            # --- Universal Proxy Spectrum (Обход Nginx/HAProxy/Varnish) ---
-            'X-Internal-Request': 'true',
-            'X-Trusted-Service': 'internal-monitoring-node',
-            'X-Gateway-Auth': f"SEC-{random.getrandbits(64):x}",
-            'Via': f"1.1 {target_host} (Internal-Bypass-QA)",
-            
-            # --- TIO & HDSS: Backbone & Signal Synthesis ---
-            'X-Carrier-Edge-ID': f"IXP-{random.getrandbits(32):x}",
-            'X-BGP-Peer-Verify': 'true',
-            'X-Edge-Signature': f"SIG-{random.getrandbits(64):x}",
-            'X-Vip-Priority': '3',
-            'X-Amzn-Trace-Id': aws_id,
-            'X-Cloud-Trace-Context': gcp_id,
-            
-            # --- Протокольная мимикрия ---
-            'X-Forwarded-Proto': 'https',
-            'X-Forwarded-Port': '443',
-            'X-Playback-Session-Id': f"{random.getrandbits(64):x}",
-            'X-Stream-Diagnostic-Mode': '1',
-            'X-CDN-Edge-Trace': 'true'
+def build_bypass_headers(url=None, spoof_client_ip=True):
+    """Заголовки, повышающие шанс пройти клиентские и гео-фильтры.
+
+    Если задана целевая страна (set_geo_target), подставляем гео-заголовки с
+    IP из этой страны — так серверы/CDN, доверяющие заголовкам для гео,
+    «увидят» клиента из нужного региона. Если страны нет — используем нейтраль-
+    ные заголовки внутреннего запроса. На корректно настроенных серверах гео
+    берётся из реального src-IP пакета, и эти поля игнорируются (без вреда).
+    """
+    headers = {
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8',
+        'Connection': 'keep-alive',
+    }
+    if spoof_client_ip:
+        geo = geo_spoof_headers()
+        if geo:
+            # Гео-маска: IP из целевой страны (для обхода гео по заголовку).
+            headers.update(geo)
+        else:
+            # Нет целевой страны → нейтральный «внутренний» запрос.
+            headers.update({
+                'X-Forwarded-For': '127.0.0.1',
+                'X-Real-IP': '127.0.0.1',
+                'X-Client-IP': '127.0.0.1',
+                'True-Client-IP': '127.0.0.1',
+                'X-Forwarded-Proto': 'https',
+            })
+    url_str = str(url or '')
+    if any(x in url_str for x in ['portal', 'api', 'get.php', 'player_api']):
+        headers['X-Requested-With'] = 'XMLHttpRequest'
+    return headers
+
+
+class DohResolver:
+    """DNS-over-HTTPS резолвер: обходит DNS-блокировку провайдера.
+
+    Запросы уходят напрямую на IP публичных резолверов (1.1.1.1 / 8.8.8.8) по
+    HTTPS, поэтому подмена/фильтрация DNS на стороне провайдера не действует.
+    Результаты кэшируются с учётом TTL. При сбое DoH — молчаливый откат на
+    системный DNS (см. install_doh_dns), чтобы ничего не сломать.
+    """
+
+    # Только IP-эндпоинты, иначе резолв самого резолвера ушёл бы в рекурсию.
+    ENDPOINTS = [
+        "https://1.1.1.1/dns-query",
+        "https://8.8.8.8/resolve",
+        "https://9.9.9.9/dns-query",
+    ]
+
+    def __init__(self):
+        self._cache = {}          # host -> (list_of_ips, expires_at)
+        self._lock = threading.Lock()
+        # Отдельная "чистая" сессия без наших заголовков-подмены, чтобы не
+        # смущать сам резолвер.
+        self._net = requests.Session()
+
+    def _query_endpoint(self, endpoint, host, rtype='A'):
+        # rtype: 'A' → IPv4, 'AAAA' → IPv6
+        try:
+            r = self._net.get(
+                endpoint,
+                params={'name': host, 'type': rtype},
+                headers={'Accept': 'application/dns-json'},
+                timeout=5,
+                verify=True,
+            )
+            if r.status_code != 200:
+                return None
+            data = r.json()
+        except Exception:
+            return None
+        answers = data.get('Answer') or []
+        want = 1 if rtype == 'A' else 28   # 1 == A, 28 == AAAA
+        ips, ttl = [], 300
+        for a in answers:
+            if a.get('type') == want and a.get('data'):
+                ips.append(a['data'])
+                ttl = min(ttl, max(30, int(a.get('TTL', 300) or 300)))
+        return (ips, ttl) if ips else None
+
+    def resolve(self, host, rtype='A'):
+        """Возвращает список адресов для host или [] при неудаче.
+
+        rtype='A' → IPv4, rtype='AAAA' → IPv6. IPv6 отдельно кэшируется, потому
+        что это ключ к обходу гео-блокировок: гео-базы для IPv6 часто пустые,
+        и сервер, режущий IPv4-диапазоны страны, нередко пускает по IPv6.
+        """
+        now = time.time()
+        cache_key = (host, rtype)
+        with self._lock:
+            cached = self._cache.get(cache_key)
+            if cached and cached[1] > now:
+                return list(cached[0])
+        for endpoint in self.ENDPOINTS:
+            result = self._query_endpoint(endpoint, host, rtype)
+            if result:
+                ips, ttl = result
+                with self._lock:
+                    self._cache[cache_key] = (ips, now + ttl)
+                return list(ips)
+        return []
+
+    def resolve_all(self, host, prefer_ipv6=True):
+        """Возвращает список адресов, при prefer_ipv6 — IPv6 первыми.
+
+        Именно этот порядок эксплуатирует «IPv6-дыру» в гео-фильтрах: сначала
+        пробуем адреса, по которым сервер чаще всего НЕ знает страну.
+        """
+        v6 = self.resolve(host, 'AAAA')
+        v4 = self.resolve(host, 'A')
+        return (v6 + v4) if prefer_ipv6 else (v4 + v6)
+
+
+doh_resolver = DohResolver()
+
+
+# Глобальный тумблер: при True getaddrinfo отдаёт IPv6-адреса ПЕРВЫМИ.
+# Это и есть «IPv6-дыра» — ОС/плеер сначала соединятся по IPv6, где гео-фильтр
+# чаще отсутствует. Требует, чтобы у клиента был рабочий IPv6 (иначе фолбэк
+# на IPv4 отработает автоматически по happy-eyeballs).
+PREFER_IPV6 = True
+
+
+def install_doh_dns():
+    """Перехватывает socket.getaddrinfo, чтобы имена резолвились через DoH.
+
+    Делает две вещи разом:
+      1. Обходит DNS-блокировку провайдера (резолв идёт через HTTPS).
+      2. Эксплуатирует «IPv6-дыру» в гео-фильтрах: при PREFER_IPV6 IPv6-адреса
+         возвращаются первыми, и соединение идёт по ним. Многие гео-базы не
+         знают страну IPv6-адреса → блокировка не срабатывает.
+
+    Литеральные IP и локальные адреса не трогаем; при пустом ответе DoH или
+    отсутствии IPv6 молча падаем на системный резолвер / IPv4.
+    """
+    original_getaddrinfo = socket.getaddrinfo
+
+    def resolving_getaddrinfo(host, port, *args, **kwargs):
+        try:
+            hostname = host
+            if not hostname or not isinstance(hostname, str):
+                return original_getaddrinfo(host, port, *args, **kwargs)
+            # Уже литеральный IP (v4 или v6) — системный путь.
+            for fam in (socket.AF_INET, socket.AF_INET6):
+                try:
+                    socket.inet_pton(fam, hostname)
+                    return original_getaddrinfo(host, port, *args, **kwargs)
+                except OSError:
+                    pass
+            if hostname in ('localhost',) or hostname.startswith('127.') \
+                    or hostname.endswith('.local'):
+                return original_getaddrinfo(host, port, *args, **kwargs)
+
+            v6 = doh_resolver.resolve(hostname, 'AAAA') if PREFER_IPV6 else []
+            v4 = doh_resolver.resolve(hostname, 'A')
+
+            results = []
+            ordered = (v6 + v4) if PREFER_IPV6 else (v4 + v6)
+            for ip in ordered:
+                if ':' in ip:
+                    # sockaddr для IPv6: (host, port, flowinfo, scopeid)
+                    results.append(
+                        (socket.AF_INET6, socket.SOCK_STREAM,
+                         socket.IPPROTO_TCP, '', (ip, port, 0, 0))
+                    )
+                else:
+                    results.append(
+                        (socket.AF_INET, socket.SOCK_STREAM,
+                         socket.IPPROTO_TCP, '', (ip, port))
+                    )
+            if results:
+                return results
+        except Exception:
+            pass
+        # Фолбэк — как будто нас тут и не было.
+        return original_getaddrinfo(host, port, *args, **kwargs)
+
+    socket.getaddrinfo = resolving_getaddrinfo
+    mode = "IPv6-first" if PREFER_IPV6 else "IPv4"
+    print(f"🌐 DNS-over-HTTPS активирован ({mode}); обход DNS + попытка IPv6-обхода гео")
+
+
+# ============================================================
+#  GEO-BYPASS — эксплуатация ошибок гео-алгоритмов (без туннелей)
+# ============================================================
+#
+# Что здесь и почему это НЕ магия:
+#   Изменить IP, который видит сервер, без промежуточного узла нельзя (иначе
+#   ответ некуда слать). Поэтому мы бьём не по IP, а по ОШИБКАМ гео-фильтров:
+#     A) IPv6-дыра — гео-база пустая для IPv6 (реализовано в install_doh_dns).
+#     B) Гео по заголовку — часть серверов/CDN верит гео-заголовкам. Тогда
+#        достаточно подставить IP из НУЖНОЙ страны (не 127.0.0.1 — это провалит
+#        гео-проверку; нужен именно in-country адрес).
+#     C) Рассинхрон edge-узлов CDN — гео-правило раскатано не на всех PoP.
+#        Перебор конкретных edge-IP с правильным Host иногда попадает на узел,
+#        где фильтра нет.
+#   Ни один из пунктов не гарантирует 100% — они бьют по конкретным дефектам
+#   конкретных серверов. Где сервер настроен правильно — обхода нет, и честный
+#   код это не скрывает.
+
+# По одному представительному публичному IP на страну (для гео-заголовков).
+# Это реальные адреса из национальных диапазонов; сервер, доверяющий
+# X-Forwarded-For/CF-Connecting-IP, «увидит» клиента из этой страны.
+COUNTRY_SAMPLE_IPS = {
+    "US": ["23.20.0.1", "3.208.0.1"],
+    "GB": ["51.140.0.1", "5.148.0.1"],
+    "DE": ["3.120.0.1", "85.214.0.1"],
+    "FR": ["51.15.0.1", "212.27.48.1"],
+    "NL": ["51.158.0.1", "94.142.240.1"],
+    "RU": ["5.255.255.1", "77.88.55.1"],
+    "UA": ["77.120.0.1", "91.198.36.1"],
+    "TR": ["31.145.0.1", "88.255.0.1"],
+    "ES": ["51.68.0.1", "80.58.0.1"],
+    "IT": ["79.171.0.1", "151.1.0.1"],
+    "PL": ["5.172.0.1", "83.1.0.1"],
+    "BR": ["18.228.0.1", "200.147.0.1"],
+    "IN": ["13.126.0.1", "103.21.244.1"],
+    "CA": ["3.96.0.1", "24.48.0.1"],
+    "AE": ["5.32.0.1", "94.200.0.1"],
+    "SA": ["5.42.192.1", "212.71.32.1"],
+    "AZ": ["5.62.160.1", "85.132.0.1"],
+    "KZ": ["2.72.0.1", "212.19.128.1"],
+    "DZ": ["41.96.0.1", "105.96.0.1"],
+}
+
+# Активная целевая страна для гео-заголовков (ISO-код). Ставится перед
+# воспроизведением канала (из уже существующего определения страны).
+active_geo_country = None
+active_geo_lock = threading.Lock()
+
+
+def set_geo_target(country_code):
+    """Задаёт страну, «из которой» будем притворяться в гео-заголовках."""
+    global active_geo_country
+    cc = (country_code or "").upper()
+    with active_geo_lock:
+        active_geo_country = cc if cc in COUNTRY_SAMPLE_IPS else None
+    if active_geo_country:
+        print(f"🎯 [geo] Гео-маска установлена: {active_geo_country}")
+
+
+def geo_ip_for(country_code=None):
+    """Возвращает in-country IP для гео-заголовков или None."""
+    with active_geo_lock:
+        cc = (country_code or active_geo_country or "").upper()
+    ips = COUNTRY_SAMPLE_IPS.get(cc)
+    return random.choice(ips) if ips else None
+
+
+def geo_spoof_headers(country_code=None):
+    """Гео-заголовки с IP из нужной страны.
+
+    ВАЖНО: это работает только на серверах/CDN, которые ошибочно доверяют
+    этим полям для гео-определения. На корректных серверах гео берётся из
+    реального src-IP пакета и заголовки игнорируются.
+    """
+    ip = geo_ip_for(country_code)
+    if not ip:
+        return {}
+    return {
+        'X-Forwarded-For': ip,
+        'X-Real-IP': ip,
+        'Client-IP': ip,
+        'X-Client-IP': ip,
+        'True-Client-IP': ip,          # Akamai / Cloudflare Enterprise
+        'CF-Connecting-IP': ip,        # Cloudflare
+        'Fastly-Client-IP': ip,        # Fastly
+        'X-Forwarded-Proto': 'https',
+    }
+
+
+class EdgeProbe:
+    """Перебор edge-IP CDN: ищем PoP, где гео-правило не раскатано.
+
+    Резолвим все A/AAAA-адреса хоста через DoH и пробуем достучаться до каждого
+    напрямую (SNI/Host = исходный домен). Если хоть один edge отвечает 200 без
+    гео-отказа — используем его. Это эксплуатация рассинхрона правил на PoP,
+    а НЕ туннель: соединение по-прежнему прямое, с твоего реального IP.
+    """
+
+    def __init__(self, session):
+        self.session = session
+
+    def candidate_ips(self, host, prefer_ipv6=True):
+        return doh_resolver.resolve_all(host, prefer_ipv6=prefer_ipv6)
+
+    def find_working_edge(self, url, ok_predicate=None):
+        """Возвращает IP работающего edge или None.
+
+        ok_predicate(response) -> bool решает, «прошёл» ли ответ гео-фильтр
+        (по умолчанию: статус < 400 и это не гео-заглушка).
+        """
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname
+        if not host:
+            return None
+        scheme = parsed.scheme or 'https'
+        port = parsed.port or (443 if scheme == 'https' else 80)
+
+        def default_ok(resp):
+            if resp.status_code >= 400:
+                return False
+            body_head = ''
+            try:
+                body_head = resp.text[:400].lower()
+            except Exception:
+                pass
+            geo_markers = ('not available in your', 'geo', 'blocked in your',
+                           'region', 'unavailable in your country')
+            return not any(m in body_head for m in geo_markers)
+
+        ok = ok_predicate or default_ok
+        for ip in self.candidate_ips(host)[:8]:
+            # Собираем URL с literal-IP, а Host/SNI оставляем доменным.
+            ip_netloc = f"[{ip}]" if ':' in ip else ip
+            if parsed.port:
+                ip_netloc += f":{parsed.port}"
+            probe_url = parsed._replace(netloc=ip_netloc).geturl()
+            headers = {'Host': host}
+            try:
+                resp = self.session.get(
+                    probe_url, headers=headers, timeout=(4, 8),
+                    verify=False, stream=True, allow_redirects=False,
+                )
+                if ok(resp):
+                    print(f"✅ [edge] Рабочий PoP найден: {ip} для {host}")
+                    return ip
+                resp.close()
+            except Exception:
+                continue
+        return None
+
+
+# ============================================================
+#  РАЗВЕДКА + МИМИКРИЯ — «постучались, посмотрели, стали своим»
+# ============================================================
+#
+# Идея (легальная): ведём себя как обычный клиент, делаем короткие запросы к
+# серверу и СМОТРИМ, что он сам о себе показывает в ответах — какой тип клиента
+# он считает «своим», нужен ли токен, какой Referer/Origin он ждёт, какие
+# заголовки дают 200, а какие — 403. Никакого взлома: только чтение публичной
+# реакции сервера. Затем на воспроизведении ВОСПРОИЗВОДИМ выученный профиль,
+# чтобы быть неотличимым от легитимного клиента этого сервера.
+#
+# Что это пробивает: фильтры по User-Agent / заголовкам / токену / цепочке
+# Referer. Что НЕ пробивает: гео-блокировку по реальному IP (см. выше — там
+# нужен промежуточный узел). Мимикрия делает нас «своим клиентом», но не меняет
+# страну IP-пакета.
+
+class ServerRecon:
+    """Быстрая разведка сервера: узнаём, какого клиента он ждёт.
+
+    Делает несколько лёгких запросов (HEAD/OPTIONS/GET корня) с разными
+    User-Agent и читает ответы. Возвращает профиль мимикрии: какой UA прошёл,
+    какие серверные заголовки видны, требуется ли авторизация/токен, какой
+    Referer/Origin уместен. Профиль кэшируется в памяти по хосту.
+    """
+
+    _cache = {}                      # host -> (profile, expires_at)
+    _cache_lock = threading.Lock()
+    _CACHE_TTL = 900                 # 15 минут
+
+    # Кандидаты-«личности», которыми пробуем прикинуться при разведке.
+    PROBE_IDENTITIES = [
+        ("smarttv", "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) SamsungBrowser/4.0 TV Safari/537.36"),
+        ("appletv", "AppleCoreMedia/1.0.0.21G93 (Apple TV; U; CPU OS 17_6 like Mac OS X)"),
+        ("vlc", "VLC/3.0.20 LibVLC/3.0.20"),
+        ("ffmpeg", "Lavf/60.16.100"),
+        ("browser", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+    ]
+
+    def __init__(self, session):
+        self.session = session
+
+    def _base(self, url):
+        p = urllib.parse.urlparse(url)
+        return f"{p.scheme}://{p.netloc}", p
+
+    def probe(self, url, force=False):
+        """Возвращает профиль мимикрии для хоста url."""
+        base, parsed = self._base(url)
+        host = parsed.netloc
+        now = time.time()
+        if not force:
+            with self._cache_lock:
+                cached = self._cache.get(host)
+                if cached and cached[1] > now:
+                    return dict(cached[0])
+
+        profile = {
+            'user_agent': self.PROBE_IDENTITIES[0][1],
+            'identity': self.PROBE_IDENTITIES[0][0],
+            'needs_token': False,
+            'referer': f"{base}/",
+            'origin': base,
+            'server_banner': '',
+            'extra_headers': {},
         }
 
-class ImperialSession(requests.Session):
+        # 1) Смотрим корень/сам url: какой сервер, какие подсказки в заголовках.
+        try:
+            r = self.session.get(url, timeout=(4, 6), verify=False,
+                                 stream=True, allow_redirects=True)
+            profile['server_banner'] = r.headers.get('Server', '') or ''
+            # Сервер сам подсказывает, что ждёт авторизацию/токен:
+            auth = r.headers.get('WWW-Authenticate', '')
+            if auth or r.status_code in (401, 402):
+                profile['needs_token'] = True
+            # Некоторые панели отдают подсказку в Set-Cookie (нужна сессия).
+            if r.headers.get('Set-Cookie'):
+                profile['extra_headers']['Cookie'] = self._first_cookie(r.headers.get('Set-Cookie'))
+            try:
+                r.close()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # 2) Перебираем «личности» коротким HEAD: чей UA сервер принимает лучше.
+        best = None
+        for ident, ua in self.PROBE_IDENTITIES:
+            try:
+                rr = self.session.head(url, headers={'User-Agent': ua},
+                                       timeout=(3, 5), verify=False,
+                                       allow_redirects=True)
+                code = rr.status_code
+                # 200/206/302 — «принят»; 405 на HEAD трактуем как мягкий успех.
+                if code in (200, 206, 301, 302, 405):
+                    best = (ident, ua)
+                    break
+                if best is None and code not in (403, 401):
+                    best = (ident, ua)
+            except Exception:
+                continue
+        if best:
+            profile['identity'], profile['user_agent'] = best
+
+        # 3) Xtream/Stalker-панели: распознаём по пути → задаём токен-хинт.
+        low = url.lower()
+        if any(x in low for x in ('/player_api', '/portal.php', '/get.php',
+                                   'stalker', '/c/', '/live/')):
+            profile['needs_token'] = True
+            profile['extra_headers']['X-Requested-With'] = 'XMLHttpRequest'
+
+        with self._cache_lock:
+            self._cache[host] = (dict(profile), now + self._CACHE_TTL)
+        print(f"🔎 [recon] Профиль {host}: identity={profile['identity']}, "
+              f"token={profile['needs_token']}, server='{profile['server_banner'][:24]}'")
+        return profile
+
+    @staticmethod
+    def _first_cookie(set_cookie):
+        # Берём name=value первой куки (до первой ';').
+        try:
+            return set_cookie.split(';', 1)[0]
+        except Exception:
+            return ''
+
+
+def mimicry_headers(url):
+    """Заголовки на основе выученного профиля сервера (разведка → мимикрия)."""
+    try:
+        profile = ServerRecon(http_session).probe(url)
+    except Exception:
+        return {}
+    headers = {
+        'User-Agent': profile.get('user_agent'),
+        'Referer': profile.get('referer'),
+        'Origin': profile.get('origin'),
+    }
+    headers.update(profile.get('extra_headers') or {})
+    return {k: v for k, v in headers.items() if v}
+
+
+class ResilientSession(requests.Session):
+    """HTTP-сессия с пулом соединений, ретраями и подменой клиентских заголовков.
+
+    Никакой "магии" — только то, что реально повышает шанс на успех:
+      * встроенные ретраи urllib3 на 403/429/5xx с backoff;
+      * добавление заголовков из build_bypass_headers к каждому запросу;
+      * запись статистики в server_stats для адаптивной стратегии.
     """
-    VIP-сессия 'Император': Абсолютный обход для ЛЮБЫХ серверов.
-    """
+
     def __init__(self):
         super().__init__()
-        self.current_region = 'EU'
-        self.headers = OrderedDict([
-            ('User-Agent', 'AppleTV14,1/2.0 (Engineering; VIP; Sovereign; QA)'),
-            ('X-User-Agent', 'System-Internal-Diagnostic-Node'),
-            ('Accept', '*/*'),
-            ('Connection', 'keep-alive')
-        ])
-        
-    def request(self, method, url, *args, **kwargs):
-        h = kwargs.get('headers', {})
-        # Слияние базовых заголовков
-        for k, v in self.headers.items():
-            if k not in h: h[k] = v
-
-        # Интеграция Зеркальных Сигнатур
-        h.update(ExtremeProtocol.get_absolute_signatures(url))
-        
-        # Обход специфических панелей (Xtream/Stalker/Custom)
-        url_str = str(url or '')
-        if any(x in url_str for x in ['portal', 'api', 'get.php']):
-            h['X-Auth-Bypass'] = 'true'
-            h['X-Requested-With'] = 'XMLHttpRequest'
-            
-        kwargs['headers'] = h
-        
-        # SSF: Zero-Packet DPI Bypass
-        time.sleep(random.uniform(0.00001, 0.00005))
-        
-        start_t = time.time()
+        self.headers.update({
+            'User-Agent': CLIENT_USER_AGENTS[0],
+            'Accept': '*/*',
+            'Connection': 'keep-alive',
+        })
         try:
-            kwargs['stream'] = kwargs.get('stream', True)
-            kwargs['timeout'] = kwargs.get('timeout', (5, 60))
-            res = super().request(method, url, *args, **kwargs)
-            duration = time.time() - start_t
-            
-            if res.status_code in (403, 401):
-                host_log = urllib.parse.urlparse(url_str).netloc
-                print(f"🌍 [Absolute] Барьер! Включаю режим 'Зеркальное Эхо' для {host_log}...")
-                time.sleep(0.3)
-                
-            global cognition
-            if cognition:
-                try: cognition.learn(url_str, duration, res.status_code < 400)
-                except: pass
-                
-            return res
-        except Exception as e:
-            print(f"📡 [Absolute] Резонансный сбой: {e}")
-            raise
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            retry = Retry(
+                total=3, connect=3, read=3,
+                backoff_factor=0.4,
+                status_forcelist=(429, 500, 502, 503, 504),
+                allowed_methods=frozenset(['GET', 'HEAD', 'OPTIONS']),
+                respect_retry_after_header=True,
+            )
+            adapter = HTTPAdapter(max_retries=retry,
+                                  pool_connections=16, pool_maxsize=32)
+            self.mount('http://', adapter)
+            self.mount('https://', adapter)
+        except Exception:
+            pass
 
-class ProtocolSingularity:
-    """Оркестратор 'Императорского' доверия."""
+    def request(self, method, url, *args, **kwargs):
+        extra = build_bypass_headers(url)
+        headers = kwargs.get('headers') or {}
+        merged = dict(extra)
+        merged.update(headers)   # заголовки вызова имеют приоритет
+        kwargs['headers'] = merged
+        kwargs.setdefault('stream', True)
+        kwargs.setdefault('timeout', (5, 60))
+
+        start = time.time()
+        try:
+            res = super().request(method, url, *args, **kwargs)
+        except Exception as e:
+            print(f"📡 [net] Сбой запроса {urllib.parse.urlparse(str(url)).netloc}: {e}")
+            raise
+        duration = time.time() - start
+
+        global server_stats
+        if server_stats:
+            try:
+                server_stats.learn(str(url), duration, res.status_code < 400)
+            except Exception:
+                pass
+        return res
+
+
+class SourceConnector:
+    """Прогрев соединения с источником и хранение адаптивной стратегии.
+
+    Заменяет прежний "оркестратор": делает реальную полезную работу — тёплый
+    OPTIONS-запрос (иногда снимает первую 403 на ленивых CDN) и подбирает
+    задержку обновления плейлиста под ответ сервера.
+    """
+
     def __init__(self, base_url):
         self.base_url = base_url
-        self.trust_level = "OBSERVER"
-        self.session = ImperialSession()
-        self.pulse_hash = None
+        self.warmed_up = False
+        self.session = ResilientSession()
+        self.refresh_delay = 0.3
+        self.mimic_profile = None
 
+    def warm_up(self):
+        if self.warmed_up:
+            return
+        self.warmed_up = True
+        # Разведка: узнаём, какого клиента сервер считает «своим», и настраиваем
+        # сессию под выученный профиль (мимикрия). Затем тёплый OPTIONS.
+        try:
+            profile = ServerRecon(self.session).probe(self.base_url)
+            if profile.get('user_agent'):
+                self.session.headers['User-Agent'] = profile['user_agent']
+            for k, v in (profile.get('extra_headers') or {}).items():
+                self.session.headers[k] = v
+            self.mimic_profile = profile
+        except Exception:
+            self.mimic_profile = None
+        try:
+            self.session.options(self.base_url, timeout=3, verify=False)
+        except Exception:
+            pass
+
+    # Совместимость со старым вызовом в _handle_livepipe.
     def negotiate_priority(self):
-        """Переводит сессию в режим VIP (Imperial)."""
-        if self.trust_level == "OBSERVER":
-            print("👑 [Imperial] Переход в режим протокольной сингулярности...")
-            try:
-                p = urllib.parse.urlparse(self.base_url)
-                qa_url = f"{p.scheme}://{p.netloc}/streaming/admin/status"
-                self.session.get(qa_url, timeout=3, verify=False)
-                print("👑 [Imperial] Права VIP-узла подтверждены. QoS: Priority Gold")
-                self.trust_level = "IMPERIAL"
-            except Exception: 
-                self.trust_level = "IMPERIAL"
+        self.warm_up()
 
     def sync_resonance(self, response_headers):
-        """Синхронизирует 'дыхание' плеера с нагрузкой сервера."""
+        """Подбирает задержку обновления по дате ответа (лёгкий джиттер)."""
         server_time = (response_headers or {}).get('Date', '')
-        self.pulse_hash = hash(server_time) % 1000 / 1000.0
+        self.refresh_delay = 0.2 + (abs(hash(server_time)) % 300) / 1000.0
 
-imperial_orchestrator = None
-cognition = None
-http_session = ImperialSession()
+    # Старое имя-свойство, чтобы не переписывать все обращения ниже.
+    @property
+    def pulse_hash(self):
+        return self.refresh_delay
+
+
+server_stats = None
+http_session = ResilientSession()
 
 # ============================================================
 #  COGNITIVE SYNAPSE — ИИ-адаптация под сервер
 # ============================================================
 
-class CognitiveSynapse:
-    """ИИ-ядро: изучает поведение серверов и строит стратегию."""
+class ServerStats:
+    """Статистика по хостам: латентность и надёжность → адаптивная стратегия."""
     def __init__(self, db):
         self.db = db
         self.memory = {} # In-memory cache для горячих данных
@@ -281,26 +761,21 @@ class CognitiveSynapse:
         self.db.commit()
 
     def get_strategy(self, url):
+        default = {'ttl_factor': 0.85, 'buffer_size': 60, 'is_new': True}
         if not url:
-            return {'ttl_factor': 0.85, 'buffer_size': 60, 'identity': 'IMPERIAL'}
+            return default
         host = urllib.parse.urlparse(url).netloc
         if not host:
-            return {'ttl_factor': 0.85, 'buffer_size': 60, 'identity': 'IMPERIAL'}
+            return default
         stats = self.db.fetchone("SELECT * FROM server_intelligence WHERE host=?", (host,))
         if not stats:
-            return {
-                'ttl_factor': 0.85,
-                'buffer_size': 60,
-                'identity': 'IMPERIAL',
-                'is_new': True
-            }
-        
-        # Fuzzy Logic: вычисляем надежность
+            return default
+
+        # Надёжнее хост — короче буфер и быстрее обновление токена.
         rel = stats['reliability_score'] or 1.0
         return {
             'ttl_factor': max(0.5, min(0.9, 0.85 * rel)),
             'buffer_size': 60 if rel > 0.8 else 90,
-            'identity': stats['preferred_identity'] or 'IMPERIAL',
             'is_new': False
         }
 
@@ -315,7 +790,7 @@ class CognitiveSynapse:
         stats = self.db.fetchone("SELECT * FROM server_intelligence WHERE host=?", (host,))
         if not stats:
             self.db.execute("INSERT INTO server_intelligence VALUES (?, ?, ?, ?, ?, ?)",
-                          (host, latency, ttl or 0, 1.0, 'IMPERIAL', now))
+                          (host, latency, ttl or 0, 1.0, '', now))
         else:
             # Экспоненциальное скользящее среднее для латенси
             new_lat = stats['avg_latency'] * 0.7 + latency * 0.3
@@ -956,20 +1431,21 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
         try:
             refresh_from_source_url = url
             # ========================================================
-            #  PROTOCOL SINGULARITY — Прямое VIP-слияние
+            #  Подключение к источнику: прогрев + адаптивная стратегия
             # ========================================================
-            orchestrator = ProtocolSingularity(refresh_from_source_url)
-            orchestrator.negotiate_priority() # QA VIP warm-up
-            
-            # ИИ-стратегия под конкретный сервер
-            if cognition:
-                strategy = cognition.get_strategy(refresh_from_source_url)
-                print(f"🧠 [Cognition] Стратегия для {urllib.parse.urlparse(refresh_from_source_url).netloc}: {strategy}")
+            connector = SourceConnector(refresh_from_source_url)
+            connector.warm_up()   # тёплый OPTIONS: иногда снимает первую 403
+
+            # Адаптивная стратегия под конкретный сервер (по накопленной статистике)
+            if server_stats:
+                strategy = server_stats.get_strategy(refresh_from_source_url)
+                print(f"📊 [stats] Стратегия для {urllib.parse.urlparse(refresh_from_source_url).netloc}: {strategy}")
             else:
-                strategy = {'ttl_factor': 0.85, 'buffer_size': 60, 'identity': 'IMPERIAL'}
-            
-            # Используем инженерную сессию для всех запросов этого пайпа
-            session = orchestrator.session
+                strategy = {'ttl_factor': 0.85, 'buffer_size': 60}
+
+            # Единая сессия с ретраями/заголовками для всех запросов этого пайпа
+            orchestrator = connector   # сохраняем имя для существующего кода ниже
+            session = connector.session
 
             # Pure-Python LIVEPIPE без ffmpeg.
             # Для Xtream-потоков используем прямой .ts fallback, если HLS auth/token
@@ -1286,13 +1762,12 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
             def _do_source_refresh():
                 nonlocal selected_audio_playlist
-                # Эмуляция VIP-протокола Apple TV Engineering
                 headers = orchestrator.session.headers.copy()
                 p_url = urllib.parse.urlparse(refresh_from_source_url)
                 headers['Origin'] = f"{p_url.scheme}://{p_url.netloc}"
                 headers['Referer'] = f"{p_url.scheme}://{p_url.netloc}/"
-                
-                # Теневой 'Phantom' запрос перед основным для разогрева CDN
+
+                # Тёплый OPTIONS перед основным запросом — иногда снимает 403 на ленивых CDN
                 try: orchestrator.session.options(refresh_from_source_url, timeout=1)
                 except: pass
 
@@ -1309,19 +1784,19 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
 
             def _async_refresh_worker():
                 try:
-                    # Резонансная задержка (Deterministic Resonance)
-                    wait = 0.2 + (orchestrator.pulse_hash or 0.1)
+                    # Небольшая адаптивная задержка перед обновлением токена
+                    wait = 0.2 + (orchestrator.refresh_delay or 0.1)
                     time.sleep(wait)
-                    
+
                     new_url = _do_source_refresh()
                     with refresh_lock:
                         nonlocal media_playlist_url, token_born_at, last_proactive_refresh
                         media_playlist_url = new_url
                         token_born_at = time.time()
                         last_proactive_refresh = time.time()
-                    print(f"👑 [Imperial] Синхронизация завершена. Поток в 'Зеленой зоне'.")
+                    print("🔄 [refresh] Токен плейлиста обновлён заранее.")
                 except Exception as e:
-                    print(f"⚠️ [Imperial] Singularity drift: {e}")
+                    print(f"⚠️ [refresh] Не удалось обновить токен: {e}")
                 finally:
                     is_refreshing_flag[0] = False
 
@@ -1334,21 +1809,42 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                     try:
                         socket.gethostbyname(parsed_url.netloc.split(':')[0])
                     except socket.gaierror:
-                        print(f"📡 [Imperial] DNS Resolution failed for {parsed_url.netloc}")
+                        print(f"📡 [net] DNS resolution failed for {parsed_url.netloc}")
                         if _attempt < 3: 
                             time.sleep(2)
                             continue
                         raise RuntimeError(f"DNS failed for {parsed_url.netloc}")
 
+                    # На каждой попытке пробуем другой User-Agent — часть серверов
+                    # режет по нему, и перебор реально помогает пройти фильтр.
                     headers = orchestrator.session.headers.copy()
+                    headers['User-Agent'] = CLIENT_USER_AGENTS[_attempt % len(CLIENT_USER_AGENTS)]
                     r = orchestrator.session.get(current_playlist_url, headers=headers, timeout=25, verify=False)
                     if r.status_code == 429:
                         raise RuntimeError("429")
+                    # Гео-отказ (403 / гео-заглушка) → пробуем перебор edge-PoP CDN:
+                    # ищем узел, где гео-правило не раскатано. Это не туннель —
+                    # прямое соединение на другой IP того же CDN с тем же Host.
+                    if r.status_code == 403:
+                        print("🚧 [geo] 403 — пробую перебор edge-узлов CDN...")
+                        edge_ip = EdgeProbe(orchestrator.session).find_working_edge(current_playlist_url)
+                        if edge_ip:
+                            p = urllib.parse.urlparse(current_playlist_url)
+                            ip_netloc = f"[{edge_ip}]" if ':' in edge_ip else edge_ip
+                            if p.port:
+                                ip_netloc += f":{p.port}"
+                            edge_url = p._replace(netloc=ip_netloc).geturl()
+                            eh = headers.copy()
+                            eh['Host'] = p.hostname
+                            r = orchestrator.session.get(edge_url, headers=eh,
+                                                         timeout=25, verify=False)
+                        if r.status_code == 403:
+                            raise RuntimeError("403 geo-block (edge fallback exhausted)")
                     initial_text, resolved_initial_url = r.text, r.url
                     break
                 except Exception as ie:
                     wait = 2.0 * (1.5 ** _attempt) + random.uniform(0, 1)
-                    print(f"⏳ [Imperial] initial 429/error; cooling down {wait:.1f}s")
+                    print(f"⏳ [net] initial fetch error ({ie}); cooling down {wait:.1f}s")
                     time.sleep(wait)
             
             if initial_text is None:
@@ -1371,11 +1867,11 @@ class HLSProxyHandler(BaseHTTPRequestHandler):
                 loop_started = time.time()
 
                 if token_safe_ttl is not None and refresh_from_source_url:
-                    # Imperial-Sync: Резонансный интервал обновления + ИИ-коррекция
+                    # Обновляем токен заранее: интервал + небольшой джиттер
                     age = time.time() - token_born_at
-                    jitter = (orchestrator.pulse_hash or 0.1) * 2.0
-                    
-                    # ИИ корректирует окно безопасности на основе надежности сервера
+                    jitter = (orchestrator.refresh_delay or 0.1) * 2.0
+
+                    # Корректируем окно безопасности по надёжности сервера
                     ttl_factor = strategy.get('ttl_factor', 0.85)
                     target_interval = token_safe_ttl * ttl_factor + jitter
                     
@@ -2188,6 +2684,10 @@ class IPTVCore(QObject):
         self._available_qualities = ["auto", "ultra", "high", "medium", "low", "minimal"]
         self._qualities_analyzed = False
         self._live_rejoin_pending = False
+        # Флаг намеренной остановки пользователем (кнопка "Каналы"/выход).
+        # Нужен, чтобы end-file(reason=STOP) НЕ вызывал авто-reopen живого потока,
+        # который возвращал канал через ~1с уже без OSD-панели.
+        self._user_stopped = False
         # Защита от reopen storm на нестабильном LIVE: не переоткрываем чаще,
         # чем раз в N секунд, и считаем подряд идущие EOF.
         self._last_live_reopen_at = 0.0
@@ -2217,9 +2717,13 @@ class IPTVCore(QObject):
         self.db = Database("premium.db")
         self.db.init_schema()
 
-        # Инициализируем ИИ-ядро
-        global cognition
-        cognition = CognitiveSynapse(self.db)
+        # Инициализируем статистику серверов + DNS-over-HTTPS
+        global server_stats
+        server_stats = ServerStats(self.db)
+        try:
+            install_doh_dns()
+        except Exception as e:
+            print(f"⚠️ DoH init failed, using system DNS: {e}")
 
         # thread-safe сигнал уровня соединения
         self.segmentDownloaded.connect(self.update_connection_quality_from_speed)
@@ -2631,6 +3135,11 @@ class IPTVCore(QObject):
     def _perform_live_rejoin(self, reason="buffer"):
         if not self._live_rejoin_pending:
             return
+        # Пользователь вышел из канала между эмитом и обработкой сигнала —
+        # не переоткрываем поток (иначе вернётся без OSD).
+        if self._user_stopped:
+            self._live_rejoin_pending = False
+            return
         if not self._last_url:
             self._live_rejoin_pending = False
             return
@@ -2682,6 +3191,14 @@ class IPTVCore(QObject):
         # которые внутри ставят QTimer.singleShot — иначе получаем
         # "QObject::startTimer: current thread's event dispatcher has already been destroyed"
         # и reopen storm. Всю работу делегируем на GUI thread через сигнал + cooldown.
+        # Пользователь сам вышел из канала (кнопка "Каналы"/выход) — это не сбой
+        # потока. НЕ переоткрываем: иначе канал возвращался через ~1с без OSD.
+        if self._user_stopped:
+            self._user_stopped = False
+            self._live_rejoin_pending = False
+            print("📺 Playback stopped by user — авто-reopen пропущен")
+            return
+
         is_live = self._is_live_stream(self._last_url, self._last_start_raw)
         if is_live and self._last_url:
             now = time.time()
@@ -3701,6 +4218,8 @@ class IPTVCore(QObject):
         self._last_live_reopen_at = 0.0
         self._live_reopen_count = 0
         self._live_rejoin_pending = False
+        # Новый канал запускается штатно — снимаем флаг намеренной остановки.
+        self._user_stopped = False
         self._last_catchup_check = 0.0
         # Сброс скорости: предыдущий live latency guard мог оставить speed=1.05.
         if HAS_MPV and self.player and self._init:
@@ -3831,6 +4350,12 @@ class IPTVCore(QObject):
             print("[SAVER] Пропускаем DNS+HTTP для определения страны канала")
         self._target_code = code
         self._target_name = cn
+        # Гео-маска: притворяемся клиентом из страны канала. Помогает пройти
+        # серверы, которые определяют гео по заголовку (а не по src-IP пакета).
+        try:
+            set_geo_target(code)
+        except Exception:
+            pass
         self.countryChanged.emit()
         print(f"🎯 Country: {code} ({cn})")
 
@@ -3855,6 +4380,10 @@ class IPTVCore(QObject):
     def stop(self):
         if HAS_MPV and self.player and self._init:
             try:
+                # Помечаем остановку как намеренную ДО player.stop(), иначе
+                # end-file(reason=STOP) успеет запустить авто-reopen живого потока.
+                self._user_stopped = True
+                self._live_rejoin_pending = False
                 self.player.stop()
                 self._set_status("Ready")
                 self.playingChanged.emit(False)
